@@ -1,7 +1,7 @@
-"""Wan2GP REST API 플러그인.
+"""Wan2GP REST API Plugin.
 
-Wan2GP 플러그인 시스템을 통해 FastAPI 기반 REST API 서버를 기동한다.
-외부 클라이언트(worker_luckywiki 등)가 HTTP로 이미지/영상 생성을 요청할 수 있게 한다.
+Starts a FastAPI-based REST API server through the Wan2GP plugin system.
+External HTTP clients can request image/video generation via the API.
 """
 
 from shared.utils.plugins import WAN2GPPlugin
@@ -16,11 +16,11 @@ class RestApiPlugin(WAN2GPPlugin):
         self._server_thread = None
 
     def setup_ui(self):
-        """UI 설정 단계. REST API 플러그인은 UI를 추가하지 않는다."""
+        """UI setup phase. The REST API plugin does not add any UI elements."""
         pass
 
     def post_ui_setup(self, components: dict):
-        """UI 빌드 완료 후 REST API 서버를 기동한다."""
+        """Start the REST API server after UI construction is complete."""
         from pathlib import Path
 
         from shared.api import init as wan2gp_init
@@ -29,13 +29,13 @@ class RestApiPlugin(WAN2GPPlugin):
         from .job_store import JobStore
         from .rest_server import configure, start_server
 
-        # 1. Job Store 생성
+        # 1. Create job store
         store = JobStore()
 
-        # 2. 콜백 어댑터 생성
+        # 2. Create callback adapter
         callback_adapter = JobCallbackAdapter(store)
 
-        # 3. Wan2GP 세션 초기화
+        # 3. Initialize Wan2GP session
         plugin_dir = Path(__file__).resolve().parent
         wan2gp_root = plugin_dir.parent.parent
         session = wan2gp_init(
@@ -43,9 +43,9 @@ class RestApiPlugin(WAN2GPPlugin):
             callbacks=callback_adapter,
         )
 
-        # 4. REST 서버에 의존성 주입
+        # 4. Inject dependencies into the REST server
         configure(store, session, callback_adapter)
 
-        # 5. 서버 기동
+        # 5. Start server
         self._server_thread = start_server(host="127.0.0.1", port=8000)
         print("[Wan2GP REST] Plugin initialized. REST API is ready.")

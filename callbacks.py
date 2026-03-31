@@ -1,4 +1,4 @@
-"""Wan2GP 콜백 → JobStore 상태 업데이트 어댑터."""
+"""Wan2GP callback → JobStore state update adapter."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ if TYPE_CHECKING:
 
 
 class JobCallbackAdapter:
-    """Wan2GP 세션 콜백을 JobStore 상태 업데이트로 라우팅한다.
+    """Routes Wan2GP session callbacks to JobStore state updates.
 
-    하나의 공유 세션에서 여러 작업을 처리할 때,
-    active_job_id를 설정하여 콜백이 올바른 JobRecord를 업데이트하도록 한다.
+    When processing multiple jobs through a single shared session,
+    set active_job_id so callbacks update the correct JobRecord.
     """
 
     def __init__(self, store: JobStore) -> None:
@@ -22,7 +22,7 @@ class JobCallbackAdapter:
         self.active_job_id: str | None = None
 
     def on_progress(self, progress) -> None:
-        """Wan2GP ProgressUpdate → JobStore 진행 상태 업데이트."""
+        """Wan2GP ProgressUpdate → JobStore progress update."""
         job_id = self.active_job_id
         if job_id is None:
             return
@@ -37,9 +37,9 @@ class JobCallbackAdapter:
         )
 
     def on_complete(self, result) -> None:
-        """Wan2GP GenerationResult → JobStore 완료/실패 처리.
+        """Wan2GP GenerationResult → JobStore completion/failure handling.
 
-        이 콜백이 완료 처리의 유일한 경로이다.
+        This callback is the sole path for completion handling.
         """
         job_id = self.active_job_id
         if job_id is None:
@@ -54,16 +54,16 @@ class JobCallbackAdapter:
             )
 
     def on_error(self, error) -> None:
-        """Wan2GP GenerationError → JobStore 에러 추가 (락 안에서)."""
+        """Wan2GP GenerationError → JobStore error append (thread-safe)."""
         job_id = self.active_job_id
         if job_id is None:
             return
         self._store.add_error(job_id, serialize_wan2gp_error(error))
 
     def on_preview(self, preview) -> None:
-        """프리뷰 이미지는 무시한다."""
+        """Preview images are ignored."""
         pass
 
     def on_stream(self, line) -> None:
-        """stdout/stderr 스트림은 무시한다."""
+        """stdout/stderr streams are ignored."""
         pass

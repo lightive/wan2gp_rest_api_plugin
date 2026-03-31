@@ -1,4 +1,4 @@
-"""FastAPI 앱 정의, 라우트, uvicorn 백그라운드 스레드 기동."""
+"""FastAPI application, routes, and uvicorn background thread."""
 
 from __future__ import annotations
 
@@ -9,20 +9,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import uvicorn
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 from .schemas import (
+    BatchTaskRequest,
     CancelResponse,
     ErrorDetail,
     JobCreatedResponse,
     JobStatusResponse,
+    SingleTaskRequest,
 )
 
 if TYPE_CHECKING:
     from .callbacks import JobCallbackAdapter
     from .job_store import JobStore
 
-# --- 모듈 레벨 참조 (plugin.py에서 주입) ---
+# --- Module-level references (injected by plugin.py) ---
 _store: JobStore | None = None
 _session: Any = None  # WanGPSession
 _callback_adapter: JobCallbackAdapter | None = None
@@ -32,7 +34,7 @@ app = FastAPI(title="Wan2GP REST API", version="1.0.0")
 
 
 def configure(store: JobStore, session: Any, callback_adapter: JobCallbackAdapter) -> None:
-    """플러그인 초기화 시 의존성을 주입한다."""
+    """Inject dependencies during plugin initialization."""
     global _store, _session, _callback_adapter
     _store = store
     _session = session
@@ -40,17 +42,17 @@ def configure(store: JobStore, session: Any, callback_adapter: JobCallbackAdapte
 
 
 def _ensure_initialized() -> None:
-    """세션과 스토어가 초기화되었는지 확인한다."""
+    """Verify that the session and store are initialized."""
     if _session is None or _store is None:
         raise HTTPException(503, detail="Wan2GP session not initialized")
 
 
 def _submit_and_track(job_id: str, submit_fn) -> None:
-    """작업을 제출하고 콜백 기반 완료 처리를 설정한다.
+    """Submit a job and wire up callback-based completion tracking.
 
-    _submit_lock은 active_job_id 설정에만 사용한다.
-    submit_fn()이 느릴 수 있으므로 락 밖에서 실행한다.
-    완료 처리는 callbacks.py의 on_complete()가 담당한다.
+    _submit_lock guards only the active_job_id assignment.
+    submit_fn() may be slow, so it runs outside the lock.
+    Completion is handled by callbacks.py on_complete().
     """
     with _submit_lock:
         _callback_adapter.active_job_id = job_id
@@ -62,52 +64,70 @@ def _submit_and_track(job_id: str, submit_fn) -> None:
     _store.mark_running(job_id, session_job)
 
 
-# --- 엔드포인트 ---
+# --- Endpoints ---
 
-@app.post("/jobs", response_model=JobCreatedResponse, status_code=202)
-async def create_job(body: dict[str, Any] | None = Body(default=None)):
-    """작업을 생성한다. JSON body로 task 또는 tasks(manifest)를 받는다."""
+@app.post(
+    "/jobs",
+    response_model=JobCreatedResponse,
+    status_code=202,
+    summary="Create a generation job",
+    description=(
+        "Submit a single task or a batch of tasks. "
+        "Task settings follow the Wan2GP 'Export Settings' JSON format. "
+        "Use `image_mode: 1` for image generation and `image_mode: 0` for video generation."
+    ),
+)
+async def create_job_single(body: SingleTaskRequest):
+    """Submit a single generation task."""
     _ensure_initialized()
-    if body is None:
-        raise HTTPException(400, detail="Request body is required")
-
-    if "task" in body:
-        settings = body["task"]
-        record = _store.create("task", request_summary={"task_keys": list(settings.keys())})
-        _submit_and_track(record.job_id, lambda: _session.submit_task(settings))
-        return JobCreatedResponse(job_id=record.job_id, state="accepted")
-
-    if "tasks" in body:
-        tasks_list = body["tasks"]
-        if not isinstance(tasks_list, list) or len(tasks_list) == 0:
-            raise HTTPException(400, detail="'tasks' must be a non-empty list")
-        record = _store.create("manifest", request_summary={"task_count": len(tasks_list)})
-        _submit_and_track(record.job_id, lambda: _session.submit_manifest(tasks_list))
-        return JobCreatedResponse(job_id=record.job_id, state="accepted")
-
-    raise HTTPException(400, detail="Request must contain 'task' or 'tasks' field")
+    settings = body.task.model_dump(exclude_none=True)
+    record = _store.create("task", request_summary={"task_keys": list(settings.keys())})
+    _submit_and_track(record.job_id, lambda: _session.submit_task(settings))
+    return JobCreatedResponse(job_id=record.job_id, state="accepted")
 
 
-@app.post("/jobs/upload", response_model=JobCreatedResponse, status_code=202)
+@app.post(
+    "/jobs/batch",
+    response_model=JobCreatedResponse,
+    status_code=202,
+    summary="Create a batch generation job",
+    description="Submit multiple tasks in a single request. Each task uses the same settings format as the single-task endpoint.",
+)
+async def create_job_batch(body: BatchTaskRequest):
+    """Submit a batch of generation tasks."""
+    _ensure_initialized()
+    tasks_list = [t.model_dump(exclude_none=True) for t in body.tasks]
+    record = _store.create("manifest", request_summary={"task_count": len(tasks_list)})
+    _submit_and_track(record.job_id, lambda: _session.submit_manifest(tasks_list))
+    return JobCreatedResponse(job_id=record.job_id, state="accepted")
+
+
+@app.post(
+    "/jobs/upload",
+    response_model=JobCreatedResponse,
+    status_code=202,
+    summary="Create a job via file upload",
+    description="Upload a settings JSON or ZIP file with optional media attachments.",
+)
 async def create_job_multipart(
-    settings_file: UploadFile = File(...),
-    media_files: list[UploadFile] = File(default=[]),
-    mode: str = Form(default="task"),
+    settings_file: UploadFile = File(..., description="A .json or .zip settings file exported from Wan2GP."),
+    media_files: list[UploadFile] = File(default=[], description="Optional media files (images, videos) referenced by the settings."),
+    mode: str = Form(default="task", description="Submission mode: 'task' or 'manifest'."),
 ):
-    """multipart/form-data로 settings 파일과 미디어 파일을 업로드하여 작업을 생성한다."""
+    """Create a generation job from uploaded files."""
     _ensure_initialized()
 
     filename = settings_file.filename or "upload"
     content = await settings_file.read()
     tmp_dir = tempfile.mkdtemp(prefix="wan2gp_job_")
 
-    # 미디어 파일 저장
+    # Save media files
     for mf in media_files:
         media_path = Path(tmp_dir) / (mf.filename or "media")
         media_content = await mf.read()
         media_path.write_bytes(media_content)
 
-    # .zip 파일은 파일 경로로 제출
+    # .zip files are submitted by path
     if filename.endswith(".zip"):
         settings_path = Path(tmp_dir) / filename
         settings_path.write_bytes(content)
@@ -116,7 +136,7 @@ async def create_job_multipart(
         _submit_and_track(record.job_id, lambda: _session.submit(settings_path))
         return JobCreatedResponse(job_id=record.job_id, state="accepted")
 
-    # .json 파일은 파싱 후 데이터로 제출
+    # .json files are parsed and submitted as data
     try:
         settings_data = json.loads(content)
     except json.JSONDecodeError:
@@ -136,9 +156,9 @@ async def create_job_multipart(
     return JobCreatedResponse(job_id=record.job_id, state="accepted")
 
 
-@app.get("/jobs/{job_id}", response_model=JobStatusResponse)
+@app.get("/jobs/{job_id}", response_model=JobStatusResponse, summary="Get job status")
 async def get_job_status(job_id: str):
-    """작업 상태를 조회한다."""
+    """Retrieve the current status and progress of a generation job."""
     _ensure_initialized()
     record = _store.get(job_id)
     if record is None:
@@ -165,9 +185,9 @@ async def get_job_status(job_id: str):
     )
 
 
-@app.post("/jobs/{job_id}/cancel", response_model=CancelResponse)
+@app.post("/jobs/{job_id}/cancel", response_model=CancelResponse, summary="Cancel a job")
 async def cancel_job(job_id: str):
-    """실행 중인 작업을 취소한다."""
+    """Request cancellation of a running or queued job."""
     _ensure_initialized()
     record = _store.get(job_id)
     if record is None:
@@ -183,10 +203,10 @@ async def cancel_job(job_id: str):
     return CancelResponse(job_id=record.job_id, state="cancelling")
 
 
-# --- 서버 기동 ---
+# --- Server startup ---
 
 def start_server(host: str = "127.0.0.1", port: int = 8000) -> threading.Thread:
-    """uvicorn을 백그라운드 데몬 스레드로 기동한다."""
+    """Start uvicorn as a background daemon thread."""
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True, name="wan2gp-rest-api")
