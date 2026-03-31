@@ -40,12 +40,21 @@ class JobCallbackAdapter:
         """Wan2GP GenerationResult → JobStore completion/failure handling.
 
         This callback is the sole path for completion handling.
+        Cancellation is detected by checking for stage="cancelled" errors,
+        which Wan2GP emits when a job is cooperatively cancelled.
         """
         job_id = self.active_job_id
         if job_id is None:
             return
         if result.success:
             self._store.mark_completed(job_id, list(result.generated_files))
+            return
+
+        is_cancelled = any(
+            getattr(e, "stage", None) == "cancelled" for e in result.errors
+        )
+        if is_cancelled:
+            self._store.mark_cancelled(job_id)
         else:
             errors = [serialize_wan2gp_error(e) for e in result.errors]
             self._store.mark_failed(

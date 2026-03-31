@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import tempfile
 import threading
@@ -50,18 +51,18 @@ def _ensure_initialized() -> None:
 def _submit_and_track(job_id: str, submit_fn) -> None:
     """Submit a job and wire up callback-based completion tracking.
 
-    _submit_lock guards only the active_job_id assignment.
-    submit_fn() may be slow, so it runs outside the lock.
-    Completion is handled by callbacks.py on_complete().
+    _submit_lock serializes submissions so that active_job_id is always
+    correct for the duration of the submit call and subsequent callbacks.
+    Wan2GP processes one job at a time, so serialization is expected.
     """
     with _submit_lock:
         _callback_adapter.active_job_id = job_id
-    try:
-        session_job = submit_fn()
-    except Exception as exc:
-        _store.mark_failed(job_id, [{"message": str(exc), "stage": "submission"}])
-        return
-    _store.mark_running(job_id, session_job)
+        try:
+            session_job = submit_fn()
+        except Exception as exc:
+            _store.mark_failed(job_id, [{"message": str(exc), "stage": "submission"}])
+            return
+        _store.mark_running(job_id, session_job)
 
 
 # --- Endpoints ---
@@ -77,7 +78,7 @@ def _submit_and_track(job_id: str, submit_fn) -> None:
         "Use `image_mode: 1` for image generation and `image_mode: 0` for video generation."
     ),
 )
-async def create_job_single(body: SingleTaskRequest):
+def create_job_single(body: SingleTaskRequest):
     """Submit a single generation task."""
     _ensure_initialized()
     settings = body.task.model_dump(exclude_none=True)
@@ -93,7 +94,7 @@ async def create_job_single(body: SingleTaskRequest):
     summary="Create a batch generation job",
     description="Submit multiple tasks in a single request. Each task uses the same settings format as the single-task endpoint.",
 )
-async def create_job_batch(body: BatchTaskRequest):
+def create_job_batch(body: BatchTaskRequest):
     """Submit a batch of generation tasks."""
     _ensure_initialized()
     tasks_list = [t.model_dump(exclude_none=True) for t in body.tasks]
@@ -133,7 +134,7 @@ async def create_job_multipart(
         settings_path.write_bytes(content)
         record = _store.create("zip_file", request_summary={"filename": filename})
         record.temp_dir = tmp_dir
-        _submit_and_track(record.job_id, lambda: _session.submit(settings_path))
+        await asyncio.to_thread(_submit_and_track, record.job_id, lambda: _session.submit(settings_path))
         return JobCreatedResponse(job_id=record.job_id, state="accepted")
 
     # .json files are parsed and submitted as data
@@ -145,11 +146,11 @@ async def create_job_multipart(
     if isinstance(settings_data, list):
         record = _store.create("manifest", request_summary={"task_count": len(settings_data)})
         record.temp_dir = tmp_dir
-        _submit_and_track(record.job_id, lambda: _session.submit_manifest(settings_data))
+        await asyncio.to_thread(_submit_and_track, record.job_id, lambda: _session.submit_manifest(settings_data))
     elif isinstance(settings_data, dict):
         record = _store.create("task", request_summary={"task_keys": list(settings_data.keys())})
         record.temp_dir = tmp_dir
-        _submit_and_track(record.job_id, lambda: _session.submit_task(settings_data))
+        await asyncio.to_thread(_submit_and_track, record.job_id, lambda: _session.submit_task(settings_data))
     else:
         raise HTTPException(400, detail="settings_file must contain a JSON object or array")
 
@@ -157,7 +158,7 @@ async def create_job_multipart(
 
 
 @app.get("/jobs/{job_id}", response_model=JobStatusResponse, summary="Get job status")
-async def get_job_status(job_id: str):
+def get_job_status(job_id: str):
     """Retrieve the current status and progress of a generation job."""
     _ensure_initialized()
     record = _store.get(job_id)
@@ -186,7 +187,7 @@ async def get_job_status(job_id: str):
 
 
 @app.post("/jobs/{job_id}/cancel", response_model=CancelResponse, summary="Cancel a job")
-async def cancel_job(job_id: str):
+def cancel_job(job_id: str):
     """Request cancellation of a running or queued job."""
     _ensure_initialized()
     record = _store.get(job_id)
