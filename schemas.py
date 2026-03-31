@@ -32,7 +32,7 @@ class TaskSettings(BaseModel):
     batch_size: int | None = Field(None, description="Number of outputs per task.")
 
     # -- Mode ---------------------------------------------------------------
-    image_mode: int | None = Field(None, description="0 = video generation, 1 = image generation.")
+    gen_mode: int | None = Field(None, description="0 = video generation, 1 = image generation.")
     model_type: str | None = Field(None, description="Wan2GP model identifier, e.g. 'ltx2_22B_distilled_gguf_q4_k_m'.")
     model_filename: str | None = Field(None, description="HuggingFace URL or local path to the model file.")
 
@@ -90,6 +90,21 @@ class JobStatusResponse(BaseModel):
     total_steps: int | None = None
     generated_files: list[str] = Field(default_factory=list)
     errors: list[ErrorDetail] = Field(default_factory=list)
+
+
+class JobSummary(BaseModel):
+    """Compact job info for list responses."""
+    job_id: str
+    state: JobState
+    progress: int = 0
+    created_at: str
+    source_type: str
+
+
+class JobListResponse(BaseModel):
+    """GET /jobs response."""
+    jobs: list[JobSummary]
+    total: int
 
 
 class CancelResponse(BaseModel):

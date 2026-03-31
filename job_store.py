@@ -102,6 +102,11 @@ class JobStore:
         with self._lock:
             return self._jobs.get(job_id)
 
+    def list_all(self) -> list[JobRecord]:
+        """Return all records ordered by creation time (newest first)."""
+        with self._lock:
+            return sorted(self._jobs.values(), key=lambda r: r.created_at, reverse=True)
+
     def update_progress(
         self,
         job_id: str,

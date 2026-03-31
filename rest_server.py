@@ -13,8 +13,11 @@ from .schemas import (
     CancelResponse,
     ErrorDetail,
     JobCreatedResponse,
+    JobListResponse,
     JobStatusResponse,
+    JobSummary,
     SingleTaskRequest,
+    TaskSettings,
 )
 
 if TYPE_CHECKING:
@@ -44,6 +47,18 @@ def _require_session() -> None:
         raise HTTPException(503, detail="Wan2GP session not initialized")
 
 
+def _prepare_settings(task: TaskSettings) -> dict:
+    """Convert a TaskSettings model to a Wan2GP settings dict.
+
+    Maps REST API field names to Wan2GP internal names:
+      gen_mode -> image_mode
+    """
+    settings = task.model_dump(exclude_none=True)
+    if "gen_mode" in settings:
+        settings["image_mode"] = settings.pop("gen_mode")
+    return settings
+
+
 def _submit_and_track(job_id: str, submit_fn) -> None:
     """Submit a job and wire up callback-based completion tracking.
 
@@ -71,13 +86,13 @@ def _submit_and_track(job_id: str, submit_fn) -> None:
     description=(
         "Submit a single generation task. "
         "Task settings follow the Wan2GP 'Export Settings' JSON format. "
-        "Use `image_mode: 1` for image generation and `image_mode: 0` for video generation."
+        "Use `gen_mode: 1` for image generation and `gen_mode: 0` for video generation."
     ),
     dependencies=[Depends(_require_session)],
 )
 def create_job(body: SingleTaskRequest):
     """Submit a single generation task."""
-    settings = body.task.model_dump(exclude_none=True)
+    settings = _prepare_settings(body.task)
     record = _store.create("task", request_summary={"task_keys": list(settings.keys())})
     _submit_and_track(record.job_id, lambda: _session.submit_task(settings))
     return JobCreatedResponse(job_id=record.job_id, state="accepted")
@@ -93,10 +108,34 @@ def create_job(body: SingleTaskRequest):
 )
 def create_job_batch(body: BatchTaskRequest):
     """Submit a batch of generation tasks."""
-    tasks_list = [t.model_dump(exclude_none=True) for t in body.tasks]
+    tasks_list = [_prepare_settings(t) for t in body.tasks]
     record = _store.create("manifest", request_summary={"task_count": len(tasks_list)})
     _submit_and_track(record.job_id, lambda: _session.submit_manifest(tasks_list))
     return JobCreatedResponse(job_id=record.job_id, state="accepted")
+
+
+@app.get(
+    "/jobs",
+    response_model=JobListResponse,
+    summary="List all jobs",
+    dependencies=[Depends(_require_session)],
+)
+def list_jobs():
+    """Return all jobs ordered by creation time (newest first)."""
+    records = _store.list_all()
+    return JobListResponse(
+        jobs=[
+            JobSummary(
+                job_id=r.job_id,
+                state=r.state,
+                progress=r.progress,
+                created_at=r.created_at.isoformat(),
+                source_type=r.source_type,
+            )
+            for r in records
+        ],
+        total=len(records),
+    )
 
 
 @app.get(
