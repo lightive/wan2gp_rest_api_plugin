@@ -21,6 +21,9 @@ class RestApiPlugin(WAN2GPPlugin):
 
     def post_ui_setup(self, components: dict):
         """Start the REST API server after UI construction is complete."""
+        if self._server_thread is not None:
+            return
+
         from pathlib import Path
 
         from shared.api import init as wan2gp_init

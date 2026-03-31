@@ -10,7 +10,7 @@ A [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) plugin that exposes image and
    https://github.com/lightive/wan2gp_rest_api_plugin
    ```
 3. **Enable & restart** — Check **"Wan2GP REST API"**, click **Save Settings**, then restart Wan2GP.
-4. **Ready** — The API is live at `http://127.0.0.1:8000`. Open `/docs` for interactive Swagger UI.
+4. **Ready** — The API is live at `http://127.0.0.1:7989`. Open `/docs` for interactive Swagger UI.
 
 ## API Endpoints
 
@@ -21,6 +21,7 @@ A [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) plugin that exposes image and
 | `GET` | `/jobs` | List all jobs (newest first) |
 | `GET` | `/jobs/{job_id}` | Poll job status and progress |
 | `POST` | `/jobs/{job_id}/cancel` | Cancel a running job |
+| `POST` | `/uploads` | Upload media files (returns server-side paths) |
 
 **Response** (`202 Accepted`):
 ```json
@@ -82,12 +83,61 @@ Settings follow the Wan2GP **Export Settings** JSON format. Use the Export Setti
 
 </details>
 
+## Attaching Media Files
+
+Wan2GP accepts file paths for attachment keys such as `image_start`, `image_end`, `image_refs`, `video_source`, etc. There are two ways to provide these:
+
+### Option A: Multipart Upload
+
+Upload files first via `POST /uploads`, then use the returned paths in task settings.
+
+```bash
+# 1. Upload
+curl -X POST http://127.0.0.1:7989/uploads \
+  -F "files=@start_frame.png"
+
+# Response: {"job_id": "abc123", "files": [{"filename": "start_frame.png", "path": "/abs/path/start_frame.png"}]}
+
+# 2. Use the path in a job
+curl -X POST http://127.0.0.1:7989/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task": {
+      "image_mode": 0,
+      "prompt": "A sunrise over mountains",
+      "image_start": "/abs/path/start_frame.png",
+      "resolution": "1280x720",
+      "video_length": 81
+    }
+  }'
+```
+
+### Option B: Inline Base64 Data-URI
+
+Embed images directly in the task JSON as `data:<mime>;base64,<data>` values. They are decoded and saved to disk automatically.
+
+```bash
+curl -X POST http://127.0.0.1:7989/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task": {
+      "image_mode": 0,
+      "prompt": "A sunrise over mountains",
+      "image_start": "data:image/png;base64,iVBORw0KGgo...",
+      "resolution": "1280x720",
+      "video_length": 81
+    }
+  }'
+```
+
+Supported attachment keys: `image_start`, `image_end`, `image_refs`, `image_guide`, `image_mask`, `video_guide`, `video_mask`, `video_source`, `audio_guide`, `audio_guide2`, `audio_source`, `custom_guide`.
+
 ## Full Examples
 
 ### Image Generation (Flux 2 Klein, 1024x1024)
 
 ```bash
-curl -X POST http://127.0.0.1:8000/jobs \
+curl -X POST http://127.0.0.1:7989/jobs \
   -H "Content-Type: application/json" \
   -d '{
     "task": {
@@ -109,7 +159,7 @@ curl -X POST http://127.0.0.1:8000/jobs \
 ### Video Generation (LTX-2, 1280x720, 241 frames)
 
 ```bash
-curl -X POST http://127.0.0.1:8000/jobs \
+curl -X POST http://127.0.0.1:7989/jobs \
   -H "Content-Type: application/json" \
   -d '{
     "task": {
@@ -136,7 +186,7 @@ curl -X POST http://127.0.0.1:8000/jobs \
 import time
 import requests
 
-BASE_URL = "http://127.0.0.1:8000"
+BASE_URL = "http://127.0.0.1:7989"
 
 # Submit
 resp = requests.post(f"{BASE_URL}/jobs", json={
