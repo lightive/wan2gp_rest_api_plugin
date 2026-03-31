@@ -1,0 +1,6 @@
+{
+  "name": "Wan2GP REST API",
+  "version": "0.1.0",
+  "author": "lightive",
+  "description": "Exposes Wan2GP generation capabilities via a localhost REST API."
+}
