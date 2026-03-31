@@ -11,25 +11,16 @@ class RestApiPlugin(WAN2GPPlugin):
     def __init__(self):
         super().__init__()
         self.name = "Wan2GP REST API"
-        self.version = "0.1.1"
+        self.version = "0.1.0"
         self.description = "Exposes Wan2GP generation capabilities via a localhost REST API."
         self._server_thread = None
-        self._initialized = False
 
     def setup_ui(self):
         """UI setup phase. The REST API plugin does not add any UI elements."""
         pass
 
     def post_ui_setup(self, components: dict):
-        """Start the REST API server after UI construction is complete.
-
-        Wan2GP may call post_ui_setup() more than once (e.g. during UI rebuilds).
-        The guard flag prevents duplicate server startup and session initialization.
-        """
-        if self._initialized:
-            return
-        self._initialized = True
-
+        """Start the REST API server after UI construction is complete."""
         from pathlib import Path
 
         from shared.api import init as wan2gp_init
