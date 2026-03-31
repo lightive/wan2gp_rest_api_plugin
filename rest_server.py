@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import threading
+import uuid
 from typing import TYPE_CHECKING, Any
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 
 from .schemas import (
     BatchTaskRequest,
@@ -18,7 +19,10 @@ from .schemas import (
     JobSummary,
     SingleTaskRequest,
     TaskSettings,
+    UploadedFile,
+    UploadResponse,
 )
+from .uploads import UploadManager
 
 if TYPE_CHECKING:
     from .callbacks import JobCallbackAdapter
@@ -28,28 +32,42 @@ if TYPE_CHECKING:
 _store: JobStore | None = None
 _session: Any = None  # WanGPSession
 _callback_adapter: JobCallbackAdapter | None = None
+_upload_manager: UploadManager | None = None
 _submit_lock = threading.Lock()
 
 app = FastAPI(title="Wan2GP REST API", version="1.0.0")
 
 
-def configure(store: JobStore, session: Any, callback_adapter: JobCallbackAdapter) -> None:
+def configure(
+    store: JobStore,
+    session: Any,
+    callback_adapter: JobCallbackAdapter,
+    upload_manager: UploadManager | None = None,
+) -> None:
     """Inject dependencies during plugin initialization."""
-    global _store, _session, _callback_adapter
+    global _store, _session, _callback_adapter, _upload_manager
     _store = store
     _session = session
     _callback_adapter = callback_adapter
+    _upload_manager = upload_manager or UploadManager()
 
 
 def _require_session() -> None:
-    """FastAPI dependency that verifies the session is initialized."""
-    if _session is None or _store is None:
+    """FastAPI dependency that verifies all services are initialized."""
+    if _session is None or _store is None or _upload_manager is None:
         raise HTTPException(503, detail="Wan2GP session not initialized")
 
 
-def _prepare_settings(task: TaskSettings) -> dict:
-    """Convert a TaskSettings model to a Wan2GP settings dict."""
-    return task.model_dump(exclude_none=True)
+def _prepare_settings(task: TaskSettings, job_id: str) -> dict:
+    """Convert a TaskSettings model to a Wan2GP settings dict.
+
+    Any base64 data-URI values in recognised attachment keys
+    (e.g. ``image_start``) are decoded and saved to disk so that
+    Wan2GP receives ordinary file paths.
+    """
+    settings = task.model_dump(exclude_none=True)
+    _upload_manager.resolve_data_uris(settings, job_id)
+    return settings
 
 
 def _submit_and_track(job_id: str, submit_fn) -> None:
@@ -65,6 +83,7 @@ def _submit_and_track(job_id: str, submit_fn) -> None:
             session_job = submit_fn()
         except Exception as exc:
             _store.mark_failed(job_id, [{"message": str(exc), "stage": "submission"}])
+            _upload_manager.cleanup_job(job_id)
             return
         _store.mark_running(job_id, session_job)
 
@@ -85,8 +104,13 @@ def _submit_and_track(job_id: str, submit_fn) -> None:
 )
 def create_job(body: SingleTaskRequest):
     """Submit a single generation task."""
-    settings = _prepare_settings(body.task)
-    record = _store.create("task", request_summary={"task_keys": list(settings.keys())})
+    record = _store.create("task", request_summary={"task_keys": list(body.task.model_fields_set)})
+    try:
+        settings = _prepare_settings(body.task, record.job_id)
+    except ValueError as exc:
+        _store.mark_failed(record.job_id, [{"message": str(exc), "stage": "validation"}])
+        _upload_manager.cleanup_job(record.job_id)
+        raise HTTPException(422, detail=str(exc))
     _submit_and_track(record.job_id, lambda: _session.submit_task(settings))
     return JobCreatedResponse(job_id=record.job_id, state="accepted")
 
@@ -101,8 +125,13 @@ def create_job(body: SingleTaskRequest):
 )
 def create_job_batch(body: BatchTaskRequest):
     """Submit a batch of generation tasks."""
-    tasks_list = [_prepare_settings(t) for t in body.tasks]
-    record = _store.create("manifest", request_summary={"task_count": len(tasks_list)})
+    record = _store.create("manifest", request_summary={"task_count": len(body.tasks)})
+    try:
+        tasks_list = [_prepare_settings(t, record.job_id) for t in body.tasks]
+    except ValueError as exc:
+        _store.mark_failed(record.job_id, [{"message": str(exc), "stage": "validation"}])
+        _upload_manager.cleanup_job(record.job_id)
+        raise HTTPException(422, detail=str(exc))
     _submit_and_track(record.job_id, lambda: _session.submit_manifest(tasks_list))
     return JobCreatedResponse(job_id=record.job_id, state="accepted")
 
@@ -183,6 +212,33 @@ def cancel_job(job_id: str):
         except Exception:
             pass
     return CancelResponse(job_id=job_id, state="cancelling")
+
+
+@app.post(
+    "/uploads",
+    response_model=UploadResponse,
+    status_code=201,
+    summary="Upload media files",
+    description=(
+        "Upload one or more image/video/audio files. "
+        "Returns absolute server-side paths that can be used in task settings "
+        "(e.g. ``image_start``, ``image_end``, ``video_source``)."
+    ),
+    dependencies=[Depends(_require_session)],
+)
+async def upload_files(files: list[UploadFile] = File(..., description="Media files to upload.")):
+    """Accept multipart file uploads and return on-disk paths."""
+    group_id = uuid.uuid4().hex[:16]
+    results: list[UploadedFile] = []
+    for f in files:
+        data = await f.read()
+        if not data:
+            continue
+        path = _upload_manager.save_file(group_id, f.filename or "upload.bin", data)
+        results.append(UploadedFile(filename=f.filename or "upload.bin", path=path))
+    if not results:
+        raise HTTPException(400, detail="No valid files uploaded")
+    return UploadResponse(job_id=group_id, files=results)
 
 
 # --- Server startup ---

@@ -28,12 +28,14 @@ class RestApiPlugin(WAN2GPPlugin):
         from .callbacks import JobCallbackAdapter
         from .job_store import JobStore
         from .rest_server import configure, start_server
+        from .uploads import UploadManager
 
-        # 1. Create job store
+        # 1. Create job store & upload manager
         store = JobStore()
+        upload_manager = UploadManager()
 
-        # 2. Create callback adapter
-        callback_adapter = JobCallbackAdapter(store)
+        # 2. Create callback adapter (with upload cleanup support)
+        callback_adapter = JobCallbackAdapter(store, upload_manager)
 
         # 3. Initialize Wan2GP session
         plugin_dir = Path(__file__).resolve().parent
@@ -44,7 +46,7 @@ class RestApiPlugin(WAN2GPPlugin):
         )
 
         # 4. Inject dependencies into the REST server
-        configure(store, session, callback_adapter)
+        configure(store, session, callback_adapter, upload_manager)
 
         # 5. Start server
         self._server_thread = start_server(host="127.0.0.1", port=8000)

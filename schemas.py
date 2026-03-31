@@ -113,6 +113,18 @@ class CancelResponse(BaseModel):
     state: JobState = "cancelling"
 
 
+class UploadedFile(BaseModel):
+    """A single uploaded file descriptor."""
+    filename: str = Field(..., description="Original filename.")
+    path: str = Field(..., description="Absolute server-side path. Use this value in task settings (e.g. image_start).")
+
+
+class UploadResponse(BaseModel):
+    """POST /uploads response."""
+    job_id: str = Field(..., description="Upload group ID — pass to the task or use for cleanup.")
+    files: list[UploadedFile]
+
+
 def serialize_wan2gp_error(error) -> dict:
     """Convert a Wan2GP GenerationError to a REST-friendly dict."""
     return {

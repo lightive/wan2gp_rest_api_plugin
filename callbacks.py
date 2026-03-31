@@ -9,6 +9,7 @@ from .schemas import serialize_wan2gp_error
 
 if TYPE_CHECKING:
     from .job_store import JobStore
+    from .uploads import UploadManager
 
 
 class JobCallbackAdapter:
@@ -25,8 +26,9 @@ class JobCallbackAdapter:
     from routing to an already-finished job.
     """
 
-    def __init__(self, store: JobStore) -> None:
+    def __init__(self, store: JobStore, upload_manager: UploadManager | None = None) -> None:
         self._store = store
+        self._upload_manager = upload_manager
         self._job_lock = threading.Lock()
         self._active_job_id: str | None = None
 
@@ -63,6 +65,9 @@ class JobCallbackAdapter:
 
         Atomically clears ``_active_job_id`` so no further stale callbacks
         can affect this (or any) job after completion.
+
+        Uploaded temp files are cleaned up after the job reaches a terminal
+        state — the generation pipeline has already loaded them by this point.
         """
         with self._job_lock:
             job_id = self._active_job_id
@@ -71,12 +76,9 @@ class JobCallbackAdapter:
             return
         if result.success:
             self._store.mark_completed(job_id, list(result.generated_files))
-            return
-
-        is_cancelled = any(
+        elif any(
             getattr(e, "stage", None) == "cancelled" for e in result.errors
-        )
-        if is_cancelled:
+        ):
             self._store.mark_cancelled(job_id)
         else:
             errors = [serialize_wan2gp_error(e) for e in result.errors]
@@ -84,6 +86,9 @@ class JobCallbackAdapter:
                 job_id, errors,
                 generated_files=list(result.generated_files),
             )
+        # Clean up uploaded temp files — Wan2GP has already loaded them.
+        if self._upload_manager is not None:
+            self._upload_manager.cleanup_job(job_id)
 
     def on_error(self, error) -> None:
         """Wan2GP GenerationError → JobStore error append (thread-safe)."""
