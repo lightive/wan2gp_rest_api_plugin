@@ -243,7 +243,7 @@ async def upload_files(files: list[UploadFile] = File(..., description="Media fi
 
 # --- Server startup ---
 
-def start_server(host: str = "127.0.0.1", port: int = 8000) -> threading.Thread:
+def start_server(host: str = "127.0.0.1", port: int = 7989) -> threading.Thread:
     """Start uvicorn as a background daemon thread."""
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     server = uvicorn.Server(config)
