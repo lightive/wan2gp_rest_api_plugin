@@ -32,7 +32,7 @@ class TaskSettings(BaseModel):
     batch_size: int | None = Field(None, description="Number of outputs per task.")
 
     # -- Mode ---------------------------------------------------------------
-    gen_mode: Literal[0, 1] | None = Field(None, description="0 = video generation, 1 = image generation.")
+    image_mode: Literal[0, 1] | None = Field(None, description="0 = video generation, 1 = image generation.")
     model_type: str | None = Field(None, description="Wan2GP model identifier, e.g. 'ltx2_22B_distilled_gguf_q4_k_m'.")
     model_filename: str | None = Field(None, description="HuggingFace URL or local path to the model file.")
 

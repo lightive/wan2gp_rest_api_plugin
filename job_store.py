@@ -96,13 +96,14 @@ class JobStore:
         )
         with self._lock:
             self._jobs[job_id] = record
-        return record
+            return self._snapshot(record)
 
     def _snapshot(self, record: JobRecord) -> JobRecord:
-        """Return a shallow copy with independent list fields."""
+        """Return a shallow copy with independent mutable fields."""
         snap = copy.copy(record)
         snap.generated_files = list(record.generated_files)
         snap.errors = list(record.errors)
+        snap.request_summary = dict(record.request_summary)
         return snap
 
     def get(self, job_id: str) -> JobRecord | None:

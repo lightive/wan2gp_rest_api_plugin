@@ -48,15 +48,8 @@ def _require_session() -> None:
 
 
 def _prepare_settings(task: TaskSettings) -> dict:
-    """Convert a TaskSettings model to a Wan2GP settings dict.
-
-    Maps REST API field names to Wan2GP internal names:
-      gen_mode -> image_mode
-    """
-    settings = task.model_dump(exclude_none=True)
-    if "gen_mode" in settings:
-        settings["image_mode"] = settings.pop("gen_mode")
-    return settings
+    """Convert a TaskSettings model to a Wan2GP settings dict."""
+    return task.model_dump(exclude_none=True)
 
 
 def _submit_and_track(job_id: str, submit_fn) -> None:
@@ -86,7 +79,7 @@ def _submit_and_track(job_id: str, submit_fn) -> None:
     description=(
         "Submit a single generation task. "
         "Task settings follow the Wan2GP 'Export Settings' JSON format. "
-        "Use `gen_mode: 1` for image generation and `gen_mode: 0` for video generation."
+        "Use `image_mode: 1` for image generation and `image_mode: 0` for video generation."
     ),
     dependencies=[Depends(_require_session)],
 )

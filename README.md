@@ -35,7 +35,7 @@ Settings follow the Wan2GP **Export Settings** JSON format. Use the Export Setti
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `gen_mode` | int | `0` = video, `1` = image |
+| `image_mode` | int | `0` = video, `1` = image |
 | `prompt` | str | Text prompt |
 | `negative_prompt` | str | Concepts to avoid |
 | `resolution` | str | e.g. `"1280x720"`, `"1024x1024"` |
@@ -91,7 +91,7 @@ curl -X POST http://127.0.0.1:8000/jobs \
   -H "Content-Type: application/json" \
   -d '{
     "task": {
-      "gen_mode": 1,
+      "image_mode": 1,
       "prompt": "A glass greenhouse filled with lush tropical plants, misty air, and dappled light",
       "resolution": "1024x1024",
       "num_inference_steps": 4,
@@ -113,7 +113,7 @@ curl -X POST http://127.0.0.1:8000/jobs \
   -H "Content-Type: application/json" \
   -d '{
     "task": {
-      "gen_mode": 0,
+      "image_mode": 0,
       "prompt": "A warm sunny backyard, cinematic camera movement with natural lighting",
       "resolution": "1280x720",
       "video_length": 241,
@@ -141,7 +141,7 @@ BASE_URL = "http://127.0.0.1:8000"
 # Submit
 resp = requests.post(f"{BASE_URL}/jobs", json={
     "task": {
-        "gen_mode": 1,
+        "image_mode": 1,
         "prompt": "A glass greenhouse filled with tropical plants",
         "resolution": "1024x1024",
         "num_inference_steps": 4,
