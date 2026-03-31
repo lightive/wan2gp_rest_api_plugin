@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -97,15 +98,29 @@ class JobStore:
             self._jobs[job_id] = record
         return record
 
+    def _snapshot(self, record: JobRecord) -> JobRecord:
+        """Return a shallow copy with independent list fields."""
+        snap = copy.copy(record)
+        snap.generated_files = list(record.generated_files)
+        snap.errors = list(record.errors)
+        return snap
+
     def get(self, job_id: str) -> JobRecord | None:
-        """Look up a record by job_id."""
+        """Look up a record by job_id (returns an immutable snapshot)."""
         with self._lock:
-            return self._jobs.get(job_id)
+            record = self._jobs.get(job_id)
+            if record is None:
+                return None
+            return self._snapshot(record)
 
     def list_all(self) -> list[JobRecord]:
-        """Return all records ordered by creation time (newest first)."""
+        """Return all records ordered by creation time (newest first, snapshots)."""
         with self._lock:
-            return sorted(self._jobs.values(), key=lambda r: r.created_at, reverse=True)
+            return sorted(
+                (self._snapshot(r) for r in self._jobs.values()),
+                key=lambda r: r.created_at,
+                reverse=True,
+            )
 
     def update_progress(
         self,
@@ -167,9 +182,25 @@ class JobStore:
                 return
             record.errors.append(error)
 
-    def mark_cancelling(self, job_id: str) -> None:
-        """Transition to cancelling state."""
-        self._transition(job_id, state="cancelling")
+    def try_cancel(self, job_id: str) -> tuple[str, Any | None]:
+        """Atomically attempt cancellation — eliminates TOCTOU races.
+
+        Returns ``(outcome, session_job)`` where *outcome* is one of:
+
+        * ``"ok"``        – transitioned to *cancelling*; caller should
+                            invoke ``session_job.cancel()`` if not None.
+        * ``"not_found"`` – no record with this id.
+        * ``"rejected"``  – job is already terminal or cancelling.
+        """
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is None:
+                return ("not_found", None)
+            if record.state in _TERMINAL_STATES or record.state == "cancelling":
+                return ("rejected", None)
+            record.state = "cancelling"
+            record.updated_at = datetime.now(timezone.utc)
+            return ("ok", record.session_job)
 
     def mark_cancelled(self, job_id: str) -> None:
         """Transition to cancelled state."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import TYPE_CHECKING
 
 from .schemas import serialize_wan2gp_error
@@ -13,17 +14,34 @@ if TYPE_CHECKING:
 class JobCallbackAdapter:
     """Routes Wan2GP session callbacks to JobStore state updates.
 
-    When processing multiple jobs through a single shared session,
-    set active_job_id so callbacks update the correct JobRecord.
+    Wan2GP fires callbacks on a single shared session.  ``set_active_job``
+    must be called (under the external ``_submit_lock``) before each
+    ``submit_*`` call so that callbacks update the correct JobRecord.
+
+    Thread-safety: ``_job_lock`` serialises every read/write of
+    ``_active_job_id`` so that a late callback arriving after a new
+    submission cannot silently corrupt the wrong job.  ``on_complete``
+    atomically clears the id, preventing any subsequent stale callback
+    from routing to an already-finished job.
     """
 
     def __init__(self, store: JobStore) -> None:
         self._store = store
-        self.active_job_id: str | None = None
+        self._job_lock = threading.Lock()
+        self._active_job_id: str | None = None
+
+    def set_active_job(self, job_id: str) -> None:
+        """Set the job id that subsequent callbacks will update."""
+        with self._job_lock:
+            self._active_job_id = job_id
+
+    def _get_active_job_id(self) -> str | None:
+        with self._job_lock:
+            return self._active_job_id
 
     def on_progress(self, progress) -> None:
         """Wan2GP ProgressUpdate → JobStore progress update."""
-        job_id = self.active_job_id
+        job_id = self._get_active_job_id()
         if job_id is None:
             return
         self._store.update_progress(
@@ -42,8 +60,13 @@ class JobCallbackAdapter:
         This callback is the sole path for completion handling.
         Cancellation is detected by checking for stage="cancelled" errors,
         which Wan2GP emits when a job is cooperatively cancelled.
+
+        Atomically clears ``_active_job_id`` so no further stale callbacks
+        can affect this (or any) job after completion.
         """
-        job_id = self.active_job_id
+        with self._job_lock:
+            job_id = self._active_job_id
+            self._active_job_id = None
         if job_id is None:
             return
         if result.success:
@@ -64,7 +87,7 @@ class JobCallbackAdapter:
 
     def on_error(self, error) -> None:
         """Wan2GP GenerationError → JobStore error append (thread-safe)."""
-        job_id = self.active_job_id
+        job_id = self._get_active_job_id()
         if job_id is None:
             return
         self._store.add_error(job_id, serialize_wan2gp_error(error))

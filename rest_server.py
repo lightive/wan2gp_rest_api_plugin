@@ -67,7 +67,7 @@ def _submit_and_track(job_id: str, submit_fn) -> None:
     Wan2GP processes one job at a time, so serialization is expected.
     """
     with _submit_lock:
-        _callback_adapter.active_job_id = job_id
+        _callback_adapter.set_active_job(job_id)
         try:
             session_job = submit_fn()
         except Exception as exc:
@@ -179,18 +179,17 @@ def get_job_status(job_id: str):
 )
 def cancel_job(job_id: str):
     """Request cancellation of a running or queued job."""
-    record = _store.get(job_id)
-    if record is None:
+    outcome, session_job = _store.try_cancel(job_id)
+    if outcome == "not_found":
         raise HTTPException(404, detail=f"Job {job_id} not found")
-    if record.state not in ("accepted", "queued", "running"):
-        raise HTTPException(409, detail=f"Job {job_id} is in state '{record.state}' and cannot be cancelled")
-    _store.mark_cancelling(job_id)
-    if record.session_job is not None:
+    if outcome == "rejected":
+        raise HTTPException(409, detail=f"Job {job_id} cannot be cancelled")
+    if session_job is not None:
         try:
-            record.session_job.cancel()
+            session_job.cancel()
         except Exception:
             pass
-    return CancelResponse(job_id=record.job_id, state="cancelling")
+    return CancelResponse(job_id=job_id, state="cancelling")
 
 
 # --- Server startup ---
