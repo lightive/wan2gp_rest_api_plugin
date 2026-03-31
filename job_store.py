@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -36,7 +35,6 @@ class JobRecord:
 
     # Metadata
     request_summary: dict = field(default_factory=dict)
-    temp_dir: str | None = None
 
 
 _TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
@@ -68,7 +66,7 @@ class JobStore:
             record.updated_at = datetime.now(timezone.utc)
 
     def _evict_stale(self) -> None:
-        """Remove records that have been in a terminal state past the eviction age, and clean up temp directories."""
+        """Remove records that have been in a terminal state past the eviction age."""
         now = datetime.now(timezone.utc)
         to_remove: list[str] = []
         with self._lock:
@@ -78,9 +76,7 @@ class JobStore:
                     if age > _EVICT_AGE_SECONDS:
                         to_remove.append(jid)
             for jid in to_remove:
-                rec = self._jobs.pop(jid)
-                if rec.temp_dir:
-                    shutil.rmtree(rec.temp_dir, ignore_errors=True)
+                self._jobs.pop(jid)
 
     # --- Public methods ---
 

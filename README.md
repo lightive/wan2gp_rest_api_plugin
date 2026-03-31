@@ -18,7 +18,6 @@ A [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) plugin that exposes image and
 |--------|------|-------------|
 | `POST` | `/jobs` | Submit a single generation task |
 | `POST` | `/jobs/batch` | Submit multiple tasks at once |
-| `POST` | `/jobs/upload` | Upload a settings JSON/ZIP file with optional media |
 | `GET` | `/jobs/{job_id}` | Poll job status and progress |
 | `POST` | `/jobs/{job_id}/cancel` | Cancel a running job |
 
@@ -160,14 +159,6 @@ while True:
 
 # Result
 print(status["generated_files"] if status["state"] == "completed" else status["errors"])
-```
-
-### File Upload
-
-```bash
-curl -X POST http://127.0.0.1:8000/jobs/upload \
-  -F "settings_file=@exported_settings.json" \
-  -F "media_files[]=@reference.png"
 ```
 
 ## Error Handling
