@@ -181,6 +181,11 @@ curl -X POST http://127.0.0.1:8000/jobs/upload \
 
 Generation failures set `state: "failed"` with details in the `errors` array.
 
+## References
+
+- [Wan2GP Python API Documentation](https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/API.md) — Session, settings format, callbacks, and event streaming
+- [Wan2GP Plugin System Documentation](https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/PLUGINS.md) — Plugin lifecycle, UI injection, and distribution
+
 ## License
 
 See the [Wan2GP repository](https://github.com/deepbeepmeep/Wan2GP) for license details.
