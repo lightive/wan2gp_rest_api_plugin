@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import threading
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import uvicorn
@@ -60,16 +62,75 @@ def _require_session() -> None:
         raise HTTPException(503, detail="Wan2GP session not initialized")
 
 
+ATTACHMENT_KEYS = frozenset({
+    "image_start", "image_end", "image_refs", "image_guide", "image_mask",
+    "video_guide", "video_mask", "video_source",
+    "audio_guide", "audio_guide2", "audio_source", "custom_guide",
+})
+
+
 def _prepare_settings(task: TaskSettings, job_id: str) -> dict:
     """Convert a TaskSettings model to a Wan2GP settings dict.
 
     Any base64 data-URI values in recognised attachment keys
     (e.g. ``image_start``) are decoded and saved to disk so that
     Wan2GP receives ordinary file paths.
+
+    Existing file paths that point to the uploads directory are also
+    re-encoded as data-URIs so that ``resolve_data_uris`` picks them
+    up and stores them under the job_id directory -- guaranteeing they
+    won't be cleaned up before the generation pipeline finishes loading.
     """
     settings = task.model_dump(exclude_none=True)
+
+    # Step 1: Re-encode upload paths as data-URIs so resolve_data_uris
+    # can save them under the job_id (preventing early cleanup).
+    upload_base = _upload_manager.base_dir.resolve()
+    for key in ATTACHMENT_KEYS:
+        if key not in settings:
+            continue
+        value = settings[key]
+        if isinstance(value, list):
+            settings[key] = [
+                _uri_for_upload_path(item, upload_base) if _is_upload_path(item, upload_base) else item
+                for item in value
+            ]
+        elif isinstance(value, str) and _is_upload_path(value, upload_base):
+            settings[key] = _uri_for_upload_path(value, upload_base)
+
+    # Step 2: Resolve data-URIs (convert back to clean paths under job_id).
     _upload_manager.resolve_data_uris(settings, job_id)
     return settings
+
+
+def _is_upload_path(value: str, upload_base: Path) -> bool:
+    """Check if *value* is a file path inside the uploads directory."""
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        return Path(value).resolve().is_relative_to(upload_base)
+    except (ValueError, TypeError):
+        return False
+
+
+_MIME_FROM_EXT: dict[str, str] = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp",
+    ".tiff": "image/tiff", ".tif": "image/tiff",
+    ".mp4": "video/mp4", ".webm": "video/webm",
+    ".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg",
+}
+
+
+def _uri_for_upload_path(file_path: str, _upload_base: Path) -> str:
+    """Read *file_path* from disk and return a data: URI."""
+    p = Path(file_path)
+    if not p.exists():
+        return file_path  # leave as-is; resolve_data_uris will pass through
+    ext = p.suffix.lower()
+    mime = _MIME_FROM_EXT.get(ext, "application/octet-stream")
+    data = base64.b64encode(p.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{data}"
 
 
 def _submit_and_track(job_id: str, submit_fn) -> None:
