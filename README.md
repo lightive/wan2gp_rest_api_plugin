@@ -22,6 +22,7 @@ A [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) plugin that exposes image and
 | `GET` | `/jobs` | List all jobs (newest first) |
 | `GET` | `/jobs/{job_id}` | Poll job status and progress |
 | `POST` | `/jobs/{job_id}/cancel` | Cancel a running job |
+| `GET` | `/jobs/{job_id}/download/{index}` | Download a generated file by index |
 | `POST` | `/uploads` | Upload media files (returns server-side paths) |
 
 **Response** (`202 Accepted`):
@@ -54,6 +55,7 @@ Settings follow the Wan2GP **Export Settings** JSON format. Use the Export Setti
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `video_prompt_type` | str | Video prompt mode |
+| `image_prompt_type` | str | Image prompt mode — `"S"` for start image, `"E"` for end image, `"SE"` for both, `""` for none |
 | `audio_scale` | float | Audio influence scale |
 | `sliding_window_size` | int | Window size in frames |
 | `sliding_window_overlap` | int | Overlap frames between windows |
@@ -86,32 +88,35 @@ Settings follow the Wan2GP **Export Settings** JSON format. Use the Export Setti
 
 ## Attaching Media Files
 
-Wan2GP accepts file paths for attachment keys such as `image_start`, `image_end`, `image_refs`, `video_source`, etc. There are two ways to provide these:
+Wan2GP accepts files for attachment keys such as `image_start`, `image_end`, `image_refs`, `video_source`, etc. There are two ways to provide these:
 
-### Option A: Multipart Upload
+### Option A: Multipart Upload (Recommended)
 
-Upload files first via `POST /uploads`, then use the returned paths in task settings.
+Upload files first via `POST /uploads`, then use the returned paths in task settings. The plugin automatically handles file path resolution — you can paste the returned path directly into your job request.
 
 ```bash
 # 1. Upload
 curl -X POST http://127.0.0.1:7989/uploads \
   -F "files=@start_frame.png"
 
-# Response: {"job_id": "abc123", "files": [{"filename": "start_frame.png", "path": "/abs/path/start_frame.png"}]}
+# Response: {"job_id": "abc123", "files": [{"filename": "start_frame.png", "path": "H:\\pinokio\\api\\wan.git\\app\\plugins\\wan2gp_rest_api_plugin\\_uploads\\abc123\\start_frame.png"}]}
 
-# 2. Use the path in a job
+# 2. Use the returned path directly in a job
 curl -X POST http://127.0.0.1:7989/jobs \
   -H "Content-Type: application/json" \
   -d '{
     "task": {
       "image_mode": 0,
+      "image_prompt_type": "S",
       "prompt": "A sunrise over mountains",
-      "image_start": "/abs/path/start_frame.png",
+      "image_start": "H:\\pinokio\\api\\wan.git\\app\\plugins\\wan2gp_rest_api_plugin\\_uploads\\abc123\\start_frame.png",
       "resolution": "1280x720",
       "video_length": 81
     }
   }'
 ```
+
+> **Note:** Upload paths are automatically re-encoded and saved under the job directory internally, so they remain available throughout the entire generation pipeline. No manual path manipulation is needed.
 
 ### Option B: Inline Base64 Data-URI
 
@@ -181,6 +186,67 @@ curl -X POST http://127.0.0.1:7989/jobs \
   }'
 ```
 
+### Video Generation from Start Image
+
+To generate video from a reference image, upload the image first and include `image_prompt_type: "S"` along with the uploaded path:
+
+```bash
+# 1. Upload the start image
+curl -X POST http://127.0.0.1:7989/uploads \
+  -F "files=@reference.png"
+
+# 2. Extract the path from the response, then submit the job
+curl -X POST http://127.0.0.1:7989/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task": {
+      "image_mode": 0,
+      "image_prompt_type": "S",
+      "image_start": "/path/from/upload/response.png",
+      "prompt": "The garden comes alive with blooming flowers",
+      "resolution": "1280x720",
+      "video_length": 241,
+      "num_inference_steps": 8,
+      "seed": -1,
+      "batch_size": 1,
+      "model_type": "ltx2_22B_distilled_gguf_q4_k_m",
+      "model_filename": "https://huggingface.co/DeepBeepMeep/LTX-2/resolve/main/ltx-2.3-22b-distilled-Q4_K_M_light.gguf",
+      "base_model_type": "ltx2_22B",
+      "sliding_window_size": 481,
+      "sliding_window_overlap": 17
+    }
+  }'
+```
+
+> **Important:** The `image_prompt_type` field controls how attachment images are processed:
+> - `"S"` — Use `image_start` (start image / first frame)
+> - `"E"` — Use `image_end` (end image / last frame)
+> - `"SE"` — Use both `image_start` and `image_end`
+> - `""` — No attachment image (text-to-video only)
+>
+> Models that don't support start images will return a validation error.
+
+### Video Generation with Start and End Images (Image-to-Video Interpolation)
+
+```bash
+curl -X POST http://127.0.0.1:7989/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task": {
+      "image_mode": 0,
+      "image_prompt_type": "SE",
+      "image_start": "/path/to/start.png",
+      "image_end": "/path/to/end.png",
+      "prompt": "A smooth transition from morning to sunset",
+      "resolution": "1280x720",
+      "video_length": 121,
+      "num_inference_steps": 8,
+      "model_type": "ltx2_22B_distilled_gguf_q4_k_m",
+      "model_filename": "https://huggingface.co/DeepBeepMeep/LTX-2/resolve/main/ltx-2.3-22b-distilled-Q4_K_M_light.gguf"
+    }
+  }'
+```
+
 ### Python Client
 
 ```python
@@ -210,8 +276,52 @@ while True:
     time.sleep(2)
 
 # Result
-print(status["generated_files"] if status["state"] == "completed" else status["errors"])
+if status["state"] == "completed":
+    print("Generated files:", status["generated_files"])
+    # Download links are also available
+    for link in status["download_links"]:
+        print(f"  {link['filename']}: {link['download_url']}")
+else:
+    print("Errors:", status["errors"])
 ```
+
+## Job Status Response
+
+When polling `GET /jobs/{job_id}`, the response includes both local file paths and downloadable URLs:
+
+```json
+{
+  "job_id": "481065ae-0213-4bf7-bfde-70c1905b5ba1",
+  "state": "completed",
+  "phase": "completed",
+  "raw_phase": "VAE Decoding",
+  "status": "done",
+  "progress": 100,
+  "current_step": 4,
+  "total_steps": 4,
+  "generated_files": [
+    "H:\\pinokio\\api\\wan.git\\app\\outputs\\2026-04-01-13h55m56s_seed132212039_output.jpg"
+  ],
+  "download_links": [
+    {
+      "filename": "2026-04-01-13h55m56s_seed132212039_output.jpg",
+      "download_url": "http://127.0.0.1:7989/jobs/481065ae-0213-4bf7-bfde-70c1905b5ba1/download/0"
+    }
+  ],
+  "errors": []
+}
+```
+
+## Downloading Generated Files
+
+Use the `download_url` from the job status response, or construct the URL manually:
+
+```bash
+# Download by index (0-based)
+curl -O http://127.0.0.1:7989/jobs/{job_id}/download/0
+```
+
+Supported media types for download: images (`.jpg`, `.png`, `.webp`) and videos (`.mp4`, `.webm`).
 
 ## Error Handling
 
@@ -219,6 +329,7 @@ print(status["generated_files"] if status["state"] == "completed" else status["e
 |-------------|------|
 | `503` | Wan2GP session not initialized |
 | `400` | Invalid request body |
+| `422` | Task validation failed |
 | `404` | Job not found |
 | `409` | Cannot cancel a terminal job |
 
@@ -257,6 +368,7 @@ job_store.py         ─ Thread-safe in-memory job state registry
 uploads.py           ─ Upload manager & base64 data-URI resolution
 callbacks.py         ─ Wan2GP callback ─> JobStore state adapter
 tests/               ─ Unit tests for standalone modules
+postman_collections/ ─ Postman collection for testing the API
 ```
 
 ## References
