@@ -223,6 +223,41 @@ print(status["generated_files"] if status["state"] == "completed" else status["e
 
 Generation failures set `state: "failed"` with details in the `errors` array.
 
+## Development
+
+Install development dependencies:
+
+```bash
+make install          # pip install -e ".[dev]"
+```
+
+Run the test suite:
+
+```bash
+make test             # pytest tests/ -v --tb=short
+```
+
+Lint and type check:
+
+```bash
+make lint             # ruff check .
+make format           # ruff format .
+make typecheck        # mypy .
+make check            # lint + typecheck + test
+```
+
+### Project Structure
+
+```
+plugin.py            ─ Wan2GP plugin entry point (RestApiPlugin)
+rest_server.py       ─ FastAPI app, routes, and uvicorn startup
+schemas.py           ─ Pydantic request/response models
+job_store.py         ─ Thread-safe in-memory job state registry
+uploads.py           ─ Upload manager & base64 data-URI resolution
+callbacks.py         ─ Wan2GP callback ─> JobStore state adapter
+tests/               ─ Unit tests for standalone modules
+```
+
 ## References
 
 - [Wan2GP Python API Documentation](https://github.com/deepbeepmeep/Wan2GP/blob/main/docs/API.md) — Session, settings format, callbacks, and event streaming

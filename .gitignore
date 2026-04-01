@@ -30,5 +30,9 @@ Desktop.ini
 .env
 .env.*
 
-# Claude Code
-.claude/
+# Upload temp files
+_uploads/
+
+# Coverage
+.coverage
+htmlcov/

@@ -166,7 +166,14 @@ class UploadManager:
 
     @staticmethod
     def _safe_filename(name: str) -> str:
-        """Sanitise filename — keep extension, replace unsafe chars."""
+        """Sanitise filename -- keep extension, strip unsafe chars.
+
+        Removes path separators, null bytes, and control characters to
+        prevent path traversal and filesystem corruption on Windows/Linux.
+        """
+        # Strip null bytes and control characters
+        name = "".join(c for c in name if c.isprintable() and c not in "/\\<>:\"|?*\0")
+        # Collapse to basename
         name = Path(name).name
         if not name or name.startswith("."):
             name = f"_{name}" if name else f"{uuid.uuid4().hex[:12]}.bin"
