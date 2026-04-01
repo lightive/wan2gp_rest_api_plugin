@@ -36,53 +36,276 @@ A [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) plugin that exposes image and
 
 Settings follow the Wan2GP **Export Settings** JSON format. Use the Export Settings button in the Wan2GP UI to discover all available fields for a given model. **Any unlisted field is still accepted and forwarded to Wan2GP.**
 
+### Core Parameters
+
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `image_mode` | int | `0` = video, `1` = image |
-| `prompt` | str | Text prompt |
-| `negative_prompt` | str | Concepts to avoid |
-| `resolution` | str | e.g. `"1280x720"`, `"1024x1024"` |
-| `num_inference_steps` | int | Denoising steps (more = higher quality) |
-| `seed` | int | Random seed (`-1` = random) |
-| `model_type` | str | Model ID (e.g. `"flux2_klein_9b"`, `"ltx2_22B_distilled_gguf_q4_k_m"`) |
+| `model_type` | str | **Required.** Model ID (e.g. `"flux2_klein_9b"`, `"ltx2_22B_distilled_gguf_q4_k_m"`, `"wan21_t2v_1_3B"`) |
 | `model_filename` | str | HuggingFace URL or local path to model weights |
-| `video_length` | int | Number of frames (video only) |
-| `batch_size` | int | Outputs per task |
+| `base_model_type` | str | Base model type for distillation/quantized variants |
+| `prompt` | str | **Required.** Text prompt describing the desired output |
+| `negative_prompt` | str | Negative prompt — concepts to avoid |
+| `alt_prompt` | str | Alternate prompt for guidance switching |
+| `image_mode` | int | `0` = video generation, `1` = image generation |
+| `model_mode` | str | Specific model mode if the model supports multiple (e.g. `"t2v"`, `"i2v"`) |
+| `resolution` | str | Output resolution, e.g. `"1280x720"`, `"1024x1024"` |
+| `video_length` | int | Number of frames to generate (video only) |
+| `duration_seconds` | float | Approximate video duration in seconds (alternative to video_length) |
+| `pause_seconds` | float | Pause duration between generated clips |
+| `batch_size` | int | Number of outputs per task |
+| `repeat_generation` | int | How many times to repeat the generation with the same settings |
+| `seed` | int | Random seed. `-1` for random |
+| `override_profile` | int | VRAM profile override (`-1` = auto) |
+| `override_attention` | str | Attention mode override |
 
-<details>
-<summary><b>Video &amp; Sliding Window</b></summary>
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `video_prompt_type` | str | Video prompt mode |
-| `image_prompt_type` | str | Image prompt mode — `"S"` for start image, `"E"` for end image, `"SE"` for both, `""` for none |
-| `audio_scale` | float | Audio influence scale |
-| `sliding_window_size` | int | Window size in frames |
-| `sliding_window_overlap` | int | Overlap frames between windows |
-| `sliding_window_color_correction_strength` | float | Color correction (`0` = off) |
-| `sliding_window_overlap_noise` | float | Noise at window overlaps |
-| `sliding_window_discard_last_frames` | int | Frames to discard per window |
-
-</details>
-
-<details>
-<summary><b>LoRA, Post-Processing &amp; Advanced</b></summary>
+### Inference & Sampling
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `activated_loras` | array | LoRA identifiers |
-| `loras_multipliers` | str | Per-LoRA weights |
-| `temporal_upsampling` | str | Frame interpolation |
-| `spatial_upsampling` | str | Spatial upscale |
-| `film_grain_intensity` | float | Film grain (`0` = off) |
-| `NAG_scale` | float | Normalized Attention Guidance scale |
-| `NAG_tau` | float | NAG tau |
-| `NAG_alpha` | float | NAG alpha |
-| `RIFLEx_setting` | int | RIFLEx override |
-| `prompt_enhancer` | str | Prompt enhancer (empty = off) |
-| `override_profile` | int | VRAM profile (`-1` = auto) |
+| `num_inference_steps` | int | Number of denoising steps |
+| `guidance_scale` | float | CFG (Classifier Free Guidance) scale |
+| `guidance2_scale` | float | Secondary guidance scale (dual-CFG models) |
+| `guidance3_scale` | float | Tertiary guidance scale (dual-CFG models) |
+| `alt_guidance_scale` | float | Guidance scale for alternate prompt |
+| `alt_scale` | float | Alternate scale for guidance |
+| `audio_guidance_scale` | float | Audio guidance scale |
+| `embedded_guidance_scale` | float | Embedded guidance scale |
+| `flow_shift` | float | Flow shift for flow-matching models |
+| `sample_solver` | str | Sampler/solver selection |
+| `guidance_phases` | str | Guidance phase configuration |
+| `model_switch_phase` | int | Phase at which to switch models |
+| `switch_threshold` | float | Threshold for model switching |
+| `switch_threshold2` | float | Secondary threshold for model switching |
+| `temperature` | float | Sampling temperature for autoregressive models |
+| `top_p` | float | Top-p (nucleus) sampling threshold |
+| `top_k` | int | Top-k sampling limit |
+
+### Frame Rate & Multi-Prompt
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `force_fps` | str | Force output FPS (e.g. `"24"`, `"30"`, `"23.976"`) |
+| `multi_prompts_gen_type` | int | Multi-prompt mode: `0` = each line = new video, `1` = each line = new sliding window, `2` = multi-line single prompt |
+| `multi_images_gen_type` | int | Multi-image mode — how to handle multiple reference images |
+
+### LoRA
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `activated_loras` | array of str | List of LoRA identifiers/paths to activate (e.g. `["lora_name_1", "/path/to/lora.safetensors"]`) |
+| `loras_multipliers` | str | LoRA weights as JSON string, e.g. `{"lora_name_1": 0.8, "lora_name_2": 1.0}` |
+
+### Media Attachments (Input)
+
+Upload files via `POST /uploads` first, then use the returned paths in these fields. Alternatively, use base64 data-URIs.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `image_start` | str/path | Start image (first frame) for image-to-video. Use with `image_prompt_type: "S"` or `"SE"` |
+| `image_end` | str/path | End image (last frame) for image-to-video interpolation. Use with `image_prompt_type: "E"` or `"SE"` |
+| `image_refs` | list | Reference images to influence style/subject (background refs, style refs) |
+| `image_refs_relative_size` | float | Relative size scaling for reference images |
+| `remove_background_images_ref` | bool | Whether to remove background from reference images |
+| `image_guide` | str/path | Guidance/control image for image-guided generation |
+| `image_mask` | str/path | Input mask for inpainting/outpainting |
+| `video_source` | str/path | Source video for video-to-video transformation |
+| `keep_frames_video_source` | list of str | Frame indices or ranges to keep from source video |
+| `keep_frames_video_guide` | list of str | Frame indices or ranges to keep from guide video |
+| `input_video_strength` | float | Strength of influence from input video (0.0–1.0) |
+| `video_guide` | str/path | Control/guide video for video-guided generation |
+| `denoising_strength` | float | Denoising strength for img2img/vid2vid (0.0–1.0) |
+| `masking_strength` | float | Mask strength for inpainting |
+| `mask_expand` | int | Mask expansion pixels for inpainting |
+| `video_mask` | str/path | Video mask for temporal inpainting |
+| `video_guide_outpainting` | str | Outpainting mode for video guide (e.g. `"Left"`, `"Right"`, `"Top"`, `"Bottom"`) |
+| `speakers_locations` | str | Speaker face locations for lip-sync |
+| `frames_positions` | str | Frame placement/positioning configuration |
+
+### Prompt Type Flags
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `image_prompt_type` | str | **Critical for attachments.** Image attachment flags: `"S"` = start image, `"E"` = end image, `"SE"` = both start+end, `"VL"` = video length from reference. Empty `""` = none |
+| `video_prompt_type` | str | Video prompt mode flags (varies by model). May include `"V"` = video guide, `"K"` = keyframes, `"F"` = frames, `"G"` = generation, `"L"` = continuation |
+| `audio_prompt_type` | str | Audio prompt mode flags |
+
+### Audio
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `audio_guide` | str/path | Audio file to guide generation |
+| `audio_guide2` | str/path | Secondary audio guide |
+| `audio_source` | str/path | Source audio for lip-sync or audio-driven generation |
+
+### Sliding Window (Long Videos)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `sliding_window_size` | int | Frames per sliding window |
+| `sliding_window_overlap` | int | Overlap frames between adjacent windows |
+| `sliding_window_color_correction_strength` | float | Color correction between windows (`0` = off) |
+| `sliding_window_overlap_noise` | float | Noise added at window overlap boundaries |
+| `sliding_window_discard_last_frames` | int | Frames to discard from end of each window |
+| `min_frames_if_references` | int | Minimum output frames when reference images are used |
+
+### Skip Steps Cache (TeaCache / MagCache)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `skip_steps_cache_type` | str | Cache type: `"tea"` for TeaCache, `"mag"` for MagCache, `""` to disable |
+| `skip_steps_multiplier` | int | Step skip multiplier for cache acceleration |
+| `skip_steps_start_step_perc` | float | Percentage of steps at which to start caching |
+
+### Advanced Guidance (NAG, CFG Star, APG)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `NAG_scale` | float | Normalized Adversarial Guidance scale |
+| `NAG_tau` | float | NAG tau (smoothing parameter) |
+| `NAG_alpha` | float | NAG alpha (guidance blend) |
+| `perturbation_switch` | int | Perturbation toggle (`0` = off, `1` = on) |
+| `perturbation_layers` | list of int | Model layers to apply perturbation |
+| `perturbation_start_perc` | float | Perturbation start percentage of denoising |
+| `perturbation_end_perc` | float | Perturbation end percentage of denoising |
+| `apg_switch` | int | Adaptive Progressive Guidance toggle (`0` = off, `1` = on) |
+| `cfg_star_switch` | int | CFG Star mode toggle (`0` = off, `1` = on) |
+| `cfg_zero_step` | int | Number of initial CFG=0 (guidance-free) steps |
+
+### Upsampling & Post-Processing
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `temporal_upsampling` | str | Frame interpolation: `"x2"` or `"x4"` RIFE upsampling, `""` = none |
+| `spatial_upsampling` | str | Spatial upscale: `"1.5x"`, `"2x"` Lanczos, or model-based, `""` = none |
+| `film_grain_intensity` | float | Film grain overlay intensity (`0` = off) |
+| `film_grain_saturation` | float | Film grain color saturation |
+| `RIFLEx_setting` | int | RIFLEx extrapolation position embedding override |
+| `output_filename` | str | Custom output filename prefix (empty = auto-generated) |
+
+### MMAudio (Audio Generation)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `MMAudio_setting` | int | MMAudio mode: `0` = off, `1` = generate, `2` = generate + mux, `3` = generate + sync |
+| `MMAudio_prompt` | str | Prompt for audio generation |
+| `MMAudio_neg_prompt` | str | Negative prompt for audio generation |
+
+### Motion
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `motion_amplitude` | float | Motion intensity/amplitude control |
+
+### Custom Settings
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `custom_settings` | str | JSON string of custom model-specific settings. Structure: `[{"name":"param","value":1.0,"type":"float"}, ...]` |
+
+### Self-Refiner
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
 | `self_refiner_setting` | int | Self-refiner iterations (`0` = off) |
-| `output_filename` | str | Custom filename (empty = auto) |
+| `self_refiner_plan` | str | Self-refiner plan string (per-step guidance) |
+| `self_refiner_f_uncertainty` | float | Uncertainty factor for self-refiner |
+| `self_refiner_certain_percentage` | float | Certainty percentage threshold for self-refiner |
+
+---
+
+<details>
+<summary><b>Quick Reference: Minimal JSON for common scenarios</b></summary>
+
+**Text-to-Image:**
+```json
+{
+  "task": {
+    "image_mode": 1,
+    "prompt": "A beautiful sunset",
+    "resolution": "1024x1024",
+    "num_inference_steps": 20,
+    "model_type": "flux2_klein_9b"
+  }
+}
+```
+
+**Text-to-Video:**
+```json
+{
+  "task": {
+    "image_mode": 0,
+    "prompt": "Ocean waves crashing on rocks",
+    "resolution": "1280x720",
+    "video_length": 121,
+    "num_inference_steps": 20,
+    "model_type": "ltx2_22B_distilled_gguf_q4_k_m"
+  }
+}
+```
+
+**Image-to-Video (Start Frame):**
+```json
+{
+  "task": {
+    "image_mode": 0,
+    "image_prompt_type": "S",
+    "image_start": "/path/to/start_image.png",
+    "prompt": "The character walks forward",
+    "resolution": "1280x720",
+    "video_length": 121,
+    "num_inference_steps": 20,
+    "model_type": "ltx2_22B_distilled_gguf_q4_k_m"
+  }
+}
+```
+
+**Image-to-Video (Start + End Frame Interpolation):**
+```json
+{
+  "task": {
+    "image_mode": 0,
+    "image_prompt_type": "SE",
+    "image_start": "/path/to/start.png",
+    "image_end": "/path/to/end.png",
+    "prompt": "Smooth transition",
+    "resolution": "1280x720",
+    "video_length": 121,
+    "num_inference_steps": 20,
+    "model_type": "ltx2_22B_distilled_gguf_q4_k_m"
+  }
+}
+```
+
+**With LoRA:**
+```json
+{
+  "task": {
+    "image_mode": 1,
+    "prompt": "A portrait in anime style",
+    "resolution": "1024x1024",
+    "num_inference_steps": 20,
+    "model_type": "flux2_klein_9b",
+    "activated_loras": ["anime_v5"],
+    "loras_multipliers": "{\"anime_v5\": 0.8}"
+  }
+}
+```
+
+**With MMAudio:**
+```json
+{
+  "task": {
+    "image_mode": 0,
+    "prompt": "Rain falling on a city street",
+    "resolution": "1280x720",
+    "video_length": 121,
+    "num_inference_steps": 20,
+    "model_type": "ltx2_22B_distilled_gguf_q4_k_m",
+    "MMAudio_setting": 3,
+    "MMAudio_prompt": "rain sounds, droplets, city ambience"
+  }
+}
+```
 
 </details>
 
@@ -99,7 +322,7 @@ Upload files first via `POST /uploads`, then use the returned paths in task sett
 curl -X POST http://127.0.0.1:7989/uploads \
   -F "files=@start_frame.png"
 
-# Response: {"job_id": "abc123", "files": [{"filename": "start_frame.png", "path": "H:\\pinokio\\api\\wan.git\\app\\plugins\\wan2gp_rest_api_plugin\\_uploads\\abc123\\start_frame.png"}]}
+# Response: {"job_id": "abc123", "files": [{"filename": "start_frame.png", "path": "/absolute/path/to/start_frame.png"}]}
 
 # 2. Use the returned path directly in a job
 curl -X POST http://127.0.0.1:7989/jobs \
@@ -109,7 +332,7 @@ curl -X POST http://127.0.0.1:7989/jobs \
       "image_mode": 0,
       "image_prompt_type": "S",
       "prompt": "A sunrise over mountains",
-      "image_start": "H:\\pinokio\\api\\wan.git\\app\\plugins\\wan2gp_rest_api_plugin\\_uploads\\abc123\\start_frame.png",
+      "image_start": "/absolute/path/to/start_frame.png",
       "resolution": "1280x720",
       "video_length": 81
     }
@@ -247,6 +470,45 @@ curl -X POST http://127.0.0.1:7989/jobs \
   }'
 ```
 
+### Video with LoRA
+
+```bash
+curl -X POST http://127.0.0.1:7989/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task": {
+      "image_mode": 0,
+      "prompt": "A cyberpunk city at night",
+      "resolution": "1280x720",
+      "video_length": 121,
+      "num_inference_steps": 20,
+      "model_type": "ltx2_22B_distilled_gguf_q4_k_m",
+      "activated_loras": ["cyberpunk_v2"],
+      "loras_multipliers": "{\"cyberpunk_v2\": 0.7}"
+    }
+  }'
+```
+
+### Video with MMAudio (Auto-Generate Audio)
+
+```bash
+curl -X POST http://127.0.0.1:7989/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task": {
+      "image_mode": 0,
+      "prompt": "Rain falling on a city street at night",
+      "resolution": "1280x720",
+      "video_length": 121,
+      "num_inference_steps": 20,
+      "model_type": "ltx2_22B_distilled_gguf_q4_k_m",
+      "MMAudio_setting": 3,
+      "MMAudio_prompt": "heavy rain, thunder, city traffic ambience",
+      "MMAudio_neg_prompt": "music, speech, silence"
+    }
+  }'
+```
+
 ### Python Client
 
 ```python
@@ -278,7 +540,6 @@ while True:
 # Result
 if status["state"] == "completed":
     print("Generated files:", status["generated_files"])
-    # Download links are also available
     for link in status["download_links"]:
         print(f"  {link['filename']}: {link['download_url']}")
 else:
@@ -300,11 +561,11 @@ When polling `GET /jobs/{job_id}`, the response includes both local file paths a
   "current_step": 4,
   "total_steps": 4,
   "generated_files": [
-    "H:\\pinokio\\api\\wan.git\\app\\outputs\\2026-04-01-13h55m56s_seed132212039_output.jpg"
+    "H:\\pinokio\\api\\wan.git\\app\\outputs\\2026-04-01-13h55m56s_output.jpg"
   ],
   "download_links": [
     {
-      "filename": "2026-04-01-13h55m56s_seed132212039_output.jpg",
+      "filename": "2026-04-01-13h55m56s_output.jpg",
       "download_url": "http://127.0.0.1:7989/jobs/481065ae-0213-4bf7-bfde-70c1905b5ba1/download/0"
     }
   ],
@@ -321,17 +582,15 @@ Use the `download_url` from the job status response, or construct the URL manual
 curl -O http://127.0.0.1:7989/jobs/{job_id}/download/0
 ```
 
-Supported media types for download: images (`.jpg`, `.png`, `.webp`) and videos (`.mp4`, `.webm`).
-
 ## Error Handling
 
 | HTTP Status | When |
 |-------------|------|
 | `503` | Wan2GP session not initialized |
 | `400` | Invalid request body |
-| `422` | Task validation failed |
+| `422` | Task validation failed (e.g. missing required fields, unsupported attachment for model) |
 | `404` | Job not found |
-| `409` | Cannot cancel a terminal job |
+| `409` | Cannot cancel a terminal job (already completed, failed, or cancelled) |
 
 Generation failures set `state: "failed"` with details in the `errors` array.
 
