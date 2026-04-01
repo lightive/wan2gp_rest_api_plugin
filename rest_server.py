@@ -7,11 +7,13 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 import uvicorn
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 
 from .schemas import (
     BatchTaskRequest,
     CancelResponse,
+    DownloadLink,
     ErrorDetail,
     JobCreatedResponse,
     JobListResponse,
@@ -160,17 +162,29 @@ def list_jobs():
     )
 
 
+def _build_download_links(job_id: str, files: list[str], request_host: str) -> list[DownloadLink]:
+    """Build public download URLs for generated files."""
+    return [
+        DownloadLink(
+            filename=path.split("/")[-1],
+            download_url=f"{request_host}/jobs/{job_id}/download/{idx}",
+        )
+        for idx, path in enumerate(files)
+    ]
+
+
 @app.get(
     "/jobs/{job_id}",
     response_model=JobStatusResponse,
     summary="Get job status",
     dependencies=[Depends(_require_session)],
 )
-def get_job_status(job_id: str):
+def get_job_status(job_id: str, request: Request):
     """Retrieve the current status and progress of a generation job."""
     record = _store.get(job_id)
     if record is None:
         raise HTTPException(404, detail=f"Job {job_id} not found")
+    host = f"{request.url.scheme}://{request.url.netloc}"
     return JobStatusResponse(
         job_id=record.job_id,
         state=record.state,
@@ -181,6 +195,7 @@ def get_job_status(job_id: str):
         current_step=record.current_step,
         total_steps=record.total_steps,
         generated_files=record.generated_files,
+        download_links=_build_download_links(job_id, record.generated_files, host),
         errors=[
             ErrorDetail(
                 message=e.get("message", ""),
@@ -212,6 +227,26 @@ def cancel_job(job_id: str):
         except Exception:
             pass
     return CancelResponse(job_id=job_id, state="cancelling")
+
+
+@app.get(
+    "/jobs/{job_id}/download/{file_index}",
+    response_class=FileResponse,
+    summary="Download a generated file",
+    dependencies=[Depends(_require_session)],
+)
+def download_file(job_id: str, file_index: int):
+    """Download a generated file by its zero-based index in the generated_files list."""
+    record = _store.get(job_id)
+    if record is None:
+        raise HTTPException(404, detail=f"Job {job_id} not found")
+    if not record.generated_files or file_index < 0 or file_index >= len(record.generated_files):
+        raise HTTPException(
+            404,
+            detail=f"File index {file_index} out of range. "
+            f"Job has {len(record.generated_files)} file(s).",
+        )
+    return FileResponse(file_path=record.generated_files[file_index])
 
 
 @app.post(

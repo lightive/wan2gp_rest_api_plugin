@@ -78,6 +78,12 @@ class ErrorDetail(BaseModel):
     task_id: Any | None = None
 
 
+class DownloadLink(BaseModel):
+    """A downloadable link for a generated file."""
+    filename: str = Field(..., description="Output filename.")
+    download_url: str = Field(..., description="URL to download the file via the REST API.")
+
+
 class JobStatusResponse(BaseModel):
     """GET /jobs/{job_id} response."""
     job_id: str
@@ -89,6 +95,7 @@ class JobStatusResponse(BaseModel):
     current_step: int | None = None
     total_steps: int | None = None
     generated_files: list[str] = Field(default_factory=list)
+    download_links: list[DownloadLink] = Field(default_factory=list)
     errors: list[ErrorDetail] = Field(default_factory=list)
 
 

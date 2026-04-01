@@ -11,7 +11,7 @@ class RestApiPlugin(WAN2GPPlugin):
     def __init__(self):
         super().__init__()
         self.name = "Wan2GP REST API"
-        self.version = "1.0.2"
+        self.version = "1.0.3"
         self.author = "lightive"
         self.description = "Exposes Wan2GP generation capabilities via a localhost REST API."
         self._server_thread = None
