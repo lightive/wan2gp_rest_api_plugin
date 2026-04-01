@@ -5,7 +5,7 @@ A [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) plugin that exposes image and
 ## Getting Started
 
 1. **Install Wan2GP** — One-click installation with [Pinokio](https://pinokio.co/), or follow the [manual setup](https://github.com/deepbeepmeep/Wan2GP).
-2. **Open Wan2GP Web UI** — In your browser, navigate to `http://127.0.0.1:{Wan2GP Port}` (the default port is shown in the Wan2GP terminal after launch).
+2. **Open Wan2GP Web UI** — In your browser, navigate to `http://127.0.0.1:42003`.
 3. **Install the plugin** — In Wan2GP, go to the **Plugins** tab, paste the URL below, and click install:
    ```
    https://github.com/lightive/wan2gp_rest_api_plugin
