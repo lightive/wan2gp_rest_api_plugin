@@ -246,7 +246,7 @@ def download_file(job_id: str, file_index: int):
             detail=f"File index {file_index} out of range. "
             f"Job has {len(record.generated_files)} file(s).",
         )
-    return FileResponse(path=record.generated_files[file_index])
+    return FileResponse(record.generated_files[file_index])
 
 
 @app.post(
