@@ -1,178 +1,240 @@
-[
-  {
-    "info": {
-      "name": "Wan2GP REST API - Image & Video",
-      "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-      "description": "Wan2GP REST API plugin for image and video generation via local endpoints"
-    },
-    "item": [
-      {
-        "name": "Submit Job",
-        "item": [
-          {
-            "name": "Submit Image Generation",
-            "request": {
-              "method": "POST",
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json"
-                }
-              ],
-              "body": {
-                "mode": "raw",
-                "raw": "{\n  \"task\": {\n    \"image_mode\": 1,\n    \"prompt\": \"A glass greenhouse filled with lush tropical plants, misty air, and dappled light\",\n    \"resolution\": \"1024x1024\",\n    \"num_inference_steps\": 4,\n    \"seed\": -1,\n    \"batch_size\": 1,\n    \"model_type\": \"flux2_klein_9b\",\n    \"model_filename\": \"https://huggingface.co/DeepBeepMeep/Flux2/resolve/main/flux-2-klein-9b_quanto_bf16_int8.safetensors\",\n    \"NAG_scale\": 1,\n    \"NAG_tau\": 3.5,\n    \"NAG_alpha\": 0.5\n  }\n}"
-              },
-              "url": {
-                "raw": "http://127.0.0.1:7989/jobs",
-                "protocol": "http",
-                "host": ["127", "0", "0", "1"],
-                "port": "7989",
-                "path": ["jobs"]
-              },
-              "description": "Submit an image generation job (Flux 2 Klein, 1024x1024)"
-            },
-            "response": []
-          },
-          {
-            "name": "Submit Video Generation",
-            "request": {
-              "method": "POST",
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json"
-                }
-              ],
-              "body": {
-                "mode": "raw",
-                "raw": "{\n  \"task\": {\n    \"image_mode\": 0,\n    \"prompt\": \"A warm sunny backyard, cinematic camera movement with natural lighting\",\n    \"resolution\": \"1280x720\",\n    \"video_length\": 241,\n    \"num_inference_steps\": 8,\n    \"seed\": -1,\n    \"batch_size\": 1,\n    \"model_type\": \"ltx2_22B_distilled_gguf_q4_k_m\",\n    \"model_filename\": \"https://huggingface.co/DeepBeepMeep/LTX-2/resolve/main/ltx-2.3-22b-distilled-Q4_K_M_light.gguf\",\n    \"base_model_type\": \"ltx2_22B\",\n    \"audio_scale\": 1,\n    \"sliding_window_size\": 481,\n    \"sliding_window_overlap\": 17\n  }\n}"
-              },
-              "url": {
-                "raw": "http://127.0.0.1:7989/jobs",
-                "protocol": "http",
-                "host": ["127", "0", "0", "1"],
-                "port": "7989",
-                "path": ["jobs"]
-              },
-              "description": "Submit a video generation job (LTX-2, 1280x720, 241 frames)"
-            },
-            "response": []
-          }
-        ]
-      },
-      {
-        "name": "List Jobs",
-        "request": {
-          "method": "GET",
-          "header": [],
-          "url": {
-            "raw": "http://127.0.0.1:7989/jobs",
-            "protocol": "http",
-            "host": ["127", "0", "0", "1"],
-            "port": "7989",
-            "path": ["jobs"]
-          },
-          "description": "List all jobs (newest first)"
-        },
-        "response": []
-      },
-      {
-        "name": "Get Job Status",
-        "request": {
-          "method": "GET",
-          "header": [],
-          "url": {
-            "raw": "http://127.0.0.1:7989/jobs/{{job_id}}",
-            "protocol": "http",
-            "host": ["127", "0", "0", "1"],
-            "port": "7989",
-            "path": ["jobs", "{{job_id}}"]
-          },
-          "description": "Poll job status and progress"
-        },
-        "response": []
-      },
-      {
-        "name": "Cancel Job",
-        "request": {
-          "method": "POST",
-          "header": [],
-          "url": {
-            "raw": "http://127.0.0.1:7989/jobs/{{job_id}}/cancel",
-            "protocol": "http",
-            "host": ["127", "0", "0", "1"],
-            "port": "7989",
-            "path": ["jobs", "{{job_id}}", "cancel"]
-          },
-          "description": "Cancel a running job"
-        },
-        "response": []
-      },
-      {
-        "name": "Batch Submit Jobs",
-        "request": {
-          "method": "POST",
-          "header": [
-            {
-              "key": "Content-Type",
-              "value": "application/json"
-            }
-          ],
-          "body": {
-            "mode": "raw",
-            "raw": "{\n  \"tasks\": [\n    {\n      \"image_mode\": 1,\n      \"prompt\": \"A glass greenhouse filled with lush tropical plants\",\n      \"resolution\": \"1024x1024\",\n      \"num_inference_steps\": 4,\n      \"model_type\": \"flux2_klein_9b\"\n    },\n    {\n      \"image_mode\": 0,\n      \"prompt\": \"A warm sunny backyard, cinematic camera movement\",\n      \"resolution\": \"1280x720\",\n      \"video_length\": 241,\n      \"num_inference_steps\": 8,\n      \"model_type\": \"ltx2_22B_distilled_gguf_q4_k_m\"\n    }\n  ]\n}"
-          },
-          "url": {
-            "raw": "http://127.0.0.1:7989/jobs/batch",
-            "protocol": "http",
-            "host": ["127", "0", "0", "1"],
-            "port": "7989",
-            "path": ["jobs", "batch"]
-          },
-          "description": "Submit multiple generation tasks at once"
-        },
-        "response": []
-      },
-      {
-        "name": "Upload Media Files",
-        "request": {
-          "method": "POST",
-          "header": [],
-          "body": {
-            "mode": "formdata",
-            "formdata": [
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "Wan2GP REST API",
+    "description": "Wan2GP REST API plugin for image and video generation. Submit jobs, track progress, and retrieve results.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    }
+  },
+  "item": [
+    {
+      "name": "Submit Job",
+      "item": [
+        {
+          "name": "Submit Image Generation",
+          "request": {
+            "method": "POST",
+            "header": [
               {
-                "key": "files",
-                "type": "file",
-                "src": [],
-                "description": "Upload image or video files (multipart/form-data)"
+                "key": "Content-Type",
+                "value": "application/json"
               }
-            ]
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task\": {\n    \"image_mode\": 1,\n    \"prompt\": \"A glass greenhouse filled with lush tropical plants, misty air, and dappled light\",\n    \"resolution\": \"1024x1024\",\n    \"num_inference_steps\": 4,\n    \"seed\": -1,\n    \"batch_size\": 1,\n    \"model_type\": \"flux2_klein_9b\",\n    \"model_filename\": \"https://huggingface.co/DeepBeepMeep/Flux2/resolve/main/flux-2-klein-9b_quanto_bf16_int8.safetensors\",\n    \"NAG_scale\": 1,\n    \"NAG_tau\": 3.5,\n    \"NAG_alpha\": 0.5\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/jobs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "jobs"
+              ]
+            },
+            "description": {
+              "content": "Submit an image generation job using Flux 2 Klein model at 1024x1024 resolution.",
+              "type": "text/plain"
+            }
           },
-          "url": {
-            "raw": "http://127.0.0.1:7989/uploads",
-            "protocol": "http",
-            "host": ["127", "0", "0", "1"],
-            "port": "7989",
-            "path": ["uploads"]
-          },
-          "description": "Upload media files - returns server-side paths for use in job submissions"
+          "response": []
         },
-        "response": []
+        {
+          "name": "Submit Video Generation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task\": {\n    \"image_mode\": 0,\n    \"prompt\": \"A warm sunny backyard, cinematic camera movement with natural lighting\",\n    \"resolution\": \"1280x720\",\n    \"video_length\": 241,\n    \"num_inference_steps\": 8,\n    \"seed\": -1,\n    \"batch_size\": 1,\n    \"model_type\": \"ltx2_22B_distilled_gguf_q4_k_m\",\n    \"model_filename\": \"https://huggingface.co/DeepBeepMeep/LTX-2/resolve/main/ltx-2.3-22b-distilled-Q4_K_M_light.gguf\",\n    \"base_model_type\": \"ltx2_22B\",\n    \"audio_scale\": 1,\n    \"sliding_window_size\": 481,\n    \"sliding_window_overlap\": 17\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/jobs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "jobs"
+              ]
+            },
+            "description": {
+              "content": "Submit a video generation job using LTX-2 model at 1280x720 resolution, 241 frames.",
+              "type": "text/plain"
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": {
+        "content": "Submit new generation jobs for image or video creation.",
+        "type": "text/plain"
       }
-    ],
-    "variable": [
-      {
-        "key": "base_url",
-        "value": "http://127.0.0.1:7989",
-        "type": "string"
+    },
+    {
+      "name": "List All Jobs",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/jobs",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "jobs"
+          ]
+        },
+        "description": {
+          "content": "List all jobs, ordered from newest to oldest.",
+          "type": "text/plain"
+        }
       },
-      {
-        "key": "job_id",
-        "value": "",
-        "type": "string"
-      }
-    ]
-  }
-]
+      "response": []
+    },
+    {
+      "name": "Get Job Status",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/jobs/{{job_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "jobs",
+            "{{job_id}}"
+          ],
+          "variable": [
+            {
+              "key": "job_id",
+              "value": "",
+              "description": "Replace with the actual job ID returned from a submit request."
+            }
+          ]
+        },
+        "description": {
+          "content": "Poll a job's status and progress percentage. Set the job_id variable or replace {{job_id}} in the URL.",
+          "type": "text/plain"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Cancel Job",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/jobs/{{job_id}}/cancel",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "jobs",
+            "{{job_id}}",
+            "cancel"
+          ],
+          "variable": [
+            {
+              "key": "job_id",
+              "value": "",
+              "description": "Replace with the actual job ID to cancel."
+            }
+          ]
+        },
+        "description": {
+          "content": "Cancel a running job. Returns 409 if the job is already in a terminal state.",
+          "type": "text/plain"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Batch Submit Jobs",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tasks\": [\n    {\n      \"image_mode\": 1,\n      \"prompt\": \"A glass greenhouse filled with lush tropical plants\",\n      \"resolution\": \"1024x1024\",\n      \"num_inference_steps\": 4,\n      \"model_type\": \"flux2_klein_9b\"\n    },\n    {\n      \"image_mode\": 0,\n      \"prompt\": \"A warm sunny backyard, cinematic camera movement with natural lighting\",\n      \"resolution\": \"1280x720\",\n      \"video_length\": 241,\n      \"num_inference_steps\": 8,\n      \"model_type\": \"ltx2_22B_distilled_gguf_q4_k_m\"\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/jobs/batch",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "jobs",
+            "batch"
+          ]
+        },
+        "description": {
+          "content": "Submit multiple generation tasks in a single request. Each task is processed independently.",
+          "type": "text/plain"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Upload Media Files",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "files",
+              "type": "file",
+              "description": "Upload one or more media files. The response returns server-side paths for use in job submissions."
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/uploads",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "uploads"
+          ]
+        },
+        "description": {
+          "content": "Upload media files via multipart/form-data. Use the returned paths in image_start, video_source, etc. fields when submitting jobs.",
+          "type": "text/plain"
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:7989",
+      "type": "string",
+      "description": "Base URL of the Wan2GP REST API server."
+    },
+    {
+      "key": "job_id",
+      "value": "",
+      "type": "string",
+      "description": "Job ID returned from a submit request. Replace this value or use it dynamically in request URLs."
+    }
+  ]
+}
