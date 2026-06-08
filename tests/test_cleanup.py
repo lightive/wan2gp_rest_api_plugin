@@ -198,3 +198,41 @@ def test_prune_skips_malformed_lines(tmp_path: Path):
     assert deleted == 1
     assert freed == 10
     assert not good.exists()
+
+
+import os
+
+from cleanup import clean_uploads
+
+
+def test_clean_uploads_removes_children(tmp_path: Path):
+    base = tmp_path / "_uploads"
+    (base / "grp1").mkdir(parents=True)
+    (base / "grp1" / "a.png").write_bytes(b"a")
+    (base / "job2").mkdir()
+    (base / "stray.bin").write_bytes(b"b")  # stray top-level file
+
+    removed = clean_uploads(base)
+    assert removed == 3
+    assert list(base.iterdir()) == []  # base itself remains, now empty
+
+
+def test_clean_uploads_missing_base_returns_zero(tmp_path: Path):
+    assert clean_uploads(tmp_path / "does_not_exist") == 0
+
+
+def test_clean_uploads_does_not_escape_via_symlink(tmp_path: Path):
+    base = tmp_path / "_uploads"
+    base.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    keeper = outside / "keep.txt"
+    keeper.write_bytes(b"do not touch")
+    try:
+        os.symlink(outside, base / "link", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink/junction creation not permitted on this host")
+
+    clean_uploads(base)
+    assert not (base / "link").exists()  # link entry removed
+    assert keeper.exists()               # target contents untouched

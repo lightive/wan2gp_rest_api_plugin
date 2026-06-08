@@ -215,3 +215,46 @@ def _within_roots(path: Path, roots: list[Path]) -> bool:
         except (OSError, ValueError):
             continue
     return False
+
+
+def clean_uploads(upload_base: Path) -> int:
+    """Remove every child of the uploads dir; return count removed.
+
+    Per-child handling never recurses through a symlink/junction/reparse point,
+    so deletion cannot escape the upload base.
+    """
+    upload_base = Path(upload_base)
+    if not upload_base.exists():
+        return 0
+    base = upload_base.resolve()
+    removed = 0
+    for child in list(upload_base.iterdir()):
+        try:
+            real_parent = Path(os.path.realpath(child)).parent
+            if child.is_symlink() or real_parent != base:
+                if not _unlink_or_rmdir(child):  # link/junction -> drop entry only
+                    continue  # both removal attempts failed -> do not count
+            elif child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink()
+            removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+def _unlink_or_rmdir(link: Path) -> bool:
+    """Remove a symlink/junction entry without touching its target.
+
+    Returns True if the entry was removed, False if both attempts failed.
+    """
+    try:
+        link.unlink()       # file symlink
+        return True
+    except (IsADirectoryError, PermissionError, OSError):
+        try:
+            os.rmdir(link)  # directory symlink / Windows junction
+            return True
+        except OSError:
+            return False
