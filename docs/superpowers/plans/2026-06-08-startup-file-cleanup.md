@@ -382,18 +382,25 @@ Expected: FAIL — `AttributeError: 'Ledger' object has no attribute 'prune'`
                 if not _within_roots(target, allowed_roots):
                     survivors.append(entry)  # outside allowed root -> never delete
                     continue
-                if target.is_symlink() or target.is_dir():
-                    survivors.append(entry)  # never delete a dir/symlink as a file
+                # _resolve() already followed symlinks, so the containment
+                # check above is the real guard; only the dir check remains.
+                if target.is_dir():
+                    survivors.append(entry)  # never delete a directory as a file
                     continue
-                if not target.exists():
-                    continue  # already gone -> drop entry
                 try:
                     size = target.stat().st_size
-                    target.unlink()
-                    deleted += 1
-                    freed += size
+                except FileNotFoundError:
+                    continue  # already gone -> drop entry
+                except OSError:
+                    survivors.append(entry)  # can't stat -> keep record
+                    continue
+                try:
+                    target.unlink(missing_ok=True)
                 except OSError:
                     survivors.append(entry)  # deletion failed -> keep record
+                    continue
+                deleted += 1
+                freed += size
             self._atomic_rewrite(survivors)
             return (deleted, freed)
 
@@ -635,7 +642,8 @@ def clean_uploads(upload_base: Path) -> int:
         try:
             real_parent = Path(os.path.realpath(child)).parent
             if child.is_symlink() or real_parent != base:
-                _unlink_or_rmdir(child)  # link/junction -> drop the entry only
+                if not _unlink_or_rmdir(child):  # link/junction -> drop entry only
+                    continue  # both removal attempts failed -> do not count
             elif child.is_dir():
                 shutil.rmtree(child, ignore_errors=True)
             else:
@@ -646,15 +654,20 @@ def clean_uploads(upload_base: Path) -> int:
     return removed
 
 
-def _unlink_or_rmdir(link: Path) -> None:
-    """Remove a symlink/junction entry without touching its target."""
+def _unlink_or_rmdir(link: Path) -> bool:
+    """Remove a symlink/junction entry without touching its target.
+
+    Returns True if the entry was removed, False if both attempts failed.
+    """
     try:
         link.unlink()       # file symlink
+        return True
     except (IsADirectoryError, PermissionError, OSError):
         try:
             os.rmdir(link)  # directory symlink / Windows junction
+            return True
         except OSError:
-            pass
+            return False
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
