@@ -33,6 +33,10 @@ Desktop.ini
 # Upload temp files
 _uploads/
 
+# Cleanup state & config
+_state/
+cleanup_config.json
+
 # Coverage
 .coverage
 htmlcov/

@@ -30,28 +30,37 @@ class RestApiPlugin(WAN2GPPlugin):
         from shared.api import init as wan2gp_init
 
         from .callbacks import JobCallbackAdapter
+        from .cleanup import CleanupConfig, Ledger, run_startup_cleanup
         from .job_store import JobStore
         from .rest_server import configure, start_server
         from .uploads import UploadManager
 
-        # 1. Create job store & upload manager
-        store = JobStore()
-        upload_manager = UploadManager()
-
-        # 2. Create callback adapter (with upload cleanup support)
-        callback_adapter = JobCallbackAdapter(store, upload_manager)
-
-        # 3. Initialize Wan2GP session
         plugin_dir = Path(__file__).resolve().parent
         wan2gp_root = plugin_dir.parent.parent
+
+        # 1. Create job store, upload manager, and generated-file ledger
+        store = JobStore()
+        upload_manager = UploadManager()
+        ledger = Ledger(plugin_dir / "_state" / "generated_ledger.jsonl")
+
+        # 2. One-time safe cleanup BEFORE the server starts (no jobs in flight)
+        config = CleanupConfig.load_or_create(
+            plugin_dir / "cleanup_config.json", wan2gp_root
+        )
+        run_startup_cleanup(upload_manager.base_dir, ledger, config)
+
+        # 3. Create callback adapter (upload cleanup + ledger recording)
+        callback_adapter = JobCallbackAdapter(store, upload_manager, ledger)
+
+        # 4. Initialize Wan2GP session
         session = wan2gp_init(
             root=wan2gp_root,
             callbacks=callback_adapter,
         )
 
-        # 4. Inject dependencies into the REST server
+        # 5. Inject dependencies into the REST server
         configure(store, session, callback_adapter, upload_manager)
 
-        # 5. Start server
+        # 6. Start server
         self._server_thread = start_server(host="0.0.0.0", port=7989)
         print("[Wan2GP REST] Plugin initialized. REST API is ready.")
