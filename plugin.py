@@ -38,16 +38,27 @@ class RestApiPlugin(WAN2GPPlugin):
         plugin_dir = Path(__file__).resolve().parent
         wan2gp_root = plugin_dir.parent.parent
 
-        # 1. Create job store, upload manager, and generated-file ledger
+        # 1. Create job store and upload manager
         store = JobStore()
         upload_manager = UploadManager()
-        ledger = Ledger(plugin_dir / "_state" / "generated_ledger.jsonl")
 
-        # 2. One-time safe cleanup BEFORE the server starts (no jobs in flight)
-        config = CleanupConfig.load_or_create(
-            plugin_dir / "cleanup_config.json", wan2gp_root
-        )
-        run_startup_cleanup(upload_manager.base_dir, ledger, config)
+        # 2. One-time safe cleanup BEFORE the server starts (no jobs in flight).
+        #    The ledger is only maintained when output cleanup is enabled, so a
+        #    disabled config never grows the ledger file. Wrapped so cleanup can
+        #    never block start_server (defense in depth).
+        ledger = None
+        try:
+            config = CleanupConfig.load_or_create(
+                plugin_dir / "cleanup_config.json", wan2gp_root
+            )
+            ledger = (
+                Ledger(plugin_dir / "_state" / "generated_ledger.jsonl")
+                if config.clean_outputs
+                else None
+            )
+            run_startup_cleanup(upload_manager.base_dir, ledger, config)
+        except Exception as exc:
+            print(f"[Wan2GP REST] startup cleanup skipped ({exc})")
 
         # 3. Create callback adapter (upload cleanup + ledger recording)
         callback_adapter = JobCallbackAdapter(store, upload_manager, ledger)

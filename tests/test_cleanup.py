@@ -275,3 +275,44 @@ def test_orchestrator_never_raises_on_bad_input(tmp_path: Path):
     bad_ledger = Ledger(tmp_path / "_state" / "missing.jsonl")
     # Non-existent upload base + missing ledger must be handled silently.
     run_startup_cleanup(tmp_path / "no_such_uploads", bad_ledger, cfg)
+
+
+def test_config_load_does_not_raise_when_unwritable(tmp_path: Path):
+    # Put a FILE where the config's parent dir should be, so that
+    # mkdir(parents=True) / write_text raise OSError inside _write_default_config.
+    blocker = tmp_path / "blocked"
+    blocker.write_bytes(b"i am a file, not a dir")
+    cfg_path = blocker / "cleanup_config.json"  # parent is a file -> unwritable
+
+    cfg = CleanupConfig.load_or_create(cfg_path, tmp_path / "wan2gp")  # must not raise
+
+    assert cfg.clean_uploads is True
+    assert cfg.clean_outputs is True
+    assert cfg.retention_days == 30
+    assert (tmp_path / "wan2gp" / "outputs").resolve() in cfg.allowed_roots
+
+
+def test_record_best_effort_when_unwritable(tmp_path: Path):
+    # Make the ledger's _state parent a FILE so mkdir(parents=True) raises.
+    state_blocker = tmp_path / "_state"
+    state_blocker.write_bytes(b"file, not a dir")
+    lg = Ledger(state_blocker / "generated_ledger.jsonl")
+
+    lg.record(["/out/a.png"])  # must not raise
+
+
+def test_read_entries_keeps_valid_over_unparseable_dup(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    f = outputs / "reused.png"
+    f.write_bytes(b"x" * 42)
+    # Same path twice: first a VALID expired ts, then an UNPARSEABLE ts.
+    # The valid (expired) record must win, so prune deletes the file.
+    lg = _write_ledger(tmp_path, [
+        {"path": str(f), "ts": _old_ts(40)},
+        {"path": str(f), "ts": "not-a-timestamp"},
+    ])
+    deleted, freed = lg.prune(30, [outputs.resolve()])
+    assert deleted == 1  # valid expired record kept -> file deleted
+    assert freed == 42
+    assert not f.exists()

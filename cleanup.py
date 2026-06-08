@@ -57,7 +57,6 @@ class CleanupConfig:
 
 
 def _write_default_config(config_path: Path) -> None:
-    config_path.parent.mkdir(parents=True, exist_ok=True)
     default = {
         "_comment": "Wan2GP REST startup cleanup. Edit values, restart to apply.",
         "clean_uploads": True,
@@ -65,7 +64,11 @@ def _write_default_config(config_path: Path) -> None:
         "output_retention_days": _DEFAULT_RETENTION_DAYS,
         "output_roots": [],
     }
-    config_path.write_text(json.dumps(default, indent=2), encoding="utf-8")
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(json.dumps(default, indent=2), encoding="utf-8")
+    except OSError as exc:
+        print(f"[Wan2GP REST] could not write cleanup_config.json ({exc}); using defaults")
 
 
 def _as_bool(value, default: bool) -> bool:
@@ -97,9 +100,13 @@ class Ledger:
         if not lines:
             return
         with self._lock:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            with self._path.open("a", encoding="utf-8") as fh:
-                fh.write("\n".join(lines) + "\n")
+            try:
+                self._path.parent.mkdir(parents=True, exist_ok=True)
+                with self._path.open("a", encoding="utf-8") as fh:
+                    fh.write("\n".join(lines) + "\n")
+            except OSError as exc:
+                print(f"[Wan2GP REST] ledger record failed ({exc})")
+                return
 
     def prune(self, retention_days: int, allowed_roots: list[Path]) -> tuple[int, int]:
         with self._lock:
@@ -170,8 +177,10 @@ class Ledger:
             else:
                 old = _parse_ts(latest[key].get("ts"))
                 new = _parse_ts(obj.get("ts"))
-                if old is not None and new is not None and new < old:
-                    continue  # keep the newer record
+                # Keep the existing valid record when the new one is unparseable
+                # or older; a bad ts must not shadow a good one.
+                if old is not None and (new is None or new < old):
+                    continue
             latest[key] = obj
         return [latest[k] for k in order]
 

@@ -618,7 +618,13 @@ any text editor (e.g. Notepad) and restart to apply:
 | `output_retention_days` | `30` | Age threshold in days. Must be an integer ≥ 1; invalid values fall back to 30 |
 | `output_roots` | `[]` | Extra allowed roots for deletion. The default `<wan2gp_root>/outputs` is always included |
 
-To disable output deletion entirely, set `"clean_outputs": false`.
+`output_roots` is **required** if you configured Wan2GP to write outputs to a
+directory **not** under `<wan2gp_root>/outputs` — otherwise those files fall
+outside every allowed root and are retained (never cleaned).
+
+To disable output deletion entirely, set `"clean_outputs": false`. The ledger is
+compacted at every startup; disabling `clean_outputs` stops the plugin from
+writing the ledger at all, so it cannot grow.
 
 ## Error Handling
 

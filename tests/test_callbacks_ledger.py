@@ -91,3 +91,30 @@ def test_ledger_not_recorded_on_failure(tmp_path: Path):
 
     adapter.on_complete(_Result(False, ["/out/partial.png"], errors=[_Err()]))
     assert not (tmp_path / "_state" / "generated_ledger.jsonl").exists()
+
+
+def test_adapter_with_none_ledger_records_nothing(tmp_path: Path):
+    class StubStore:
+        def __init__(self):
+            self.completed = None
+
+        def mark_completed(self, jid, files):
+            self.completed = (jid, files)
+
+        def mark_failed(self, jid, errs, generated_files=None):
+            pass
+
+        def mark_cancelled(self, jid):
+            pass
+
+    class StubUploads:
+        def cleanup_job(self, jid):
+            pass
+
+    store = StubStore()
+    adapter = JobCallbackAdapter(store, StubUploads(), None)
+    adapter.set_active_job("job3")
+    adapter.on_complete(_Result(True, ["/out/x.png"]))  # must not raise
+
+    assert store.completed == ("job3", ["/out/x.png"])  # store still updated
+    assert not (tmp_path / "_state" / "generated_ledger.jsonl").exists()
