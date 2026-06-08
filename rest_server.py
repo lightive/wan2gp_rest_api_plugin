@@ -75,7 +75,7 @@ _OPENAPI_TAGS = [
 
 app = FastAPI(
     title="Wan2GP REST API",
-    version="1.0.7",
+    version="1.1.0",
     description=_API_DESCRIPTION,
     openapi_tags=_OPENAPI_TAGS,
 )
