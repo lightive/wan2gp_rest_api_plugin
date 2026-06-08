@@ -6,9 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---------------------------------------------------------------------------
-# Task settings – mirrors Wan2GP's "Export Settings" JSON format.
+# Task settings - mirrors Wan2GP's "Export Settings" JSON format.
 # All fields are optional because different models require different subsets.
 # Extra fields are forwarded to Wan2GP as-is (`extra = "allow"`).
 # ---------------------------------------------------------------------------

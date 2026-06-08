@@ -1,6 +1,5 @@
-from datetime import datetime, timezone
-
-import pytest
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock
 
 from job_store import JobStore
 
@@ -80,30 +79,22 @@ def test_try_cancel_rejected_for_completed():
 def test_list_all_ordering_newest_first():
     store = JobStore()
     rec_a = store.create("task")
+    # Force a distinct, earlier timestamp so ordering is deterministic
+    # regardless of clock resolution.
+    with store._lock:
+        store._jobs[rec_a.job_id].created_at -= timedelta(seconds=1)
     rec_b = store.create("task")
     records = store.list_all()
     assert records[0].job_id == rec_b.job_id  # newest first
     assert records[1].job_id == rec_a.job_id
 
 
-def test_evict_stale_after_one_hour(monkeypatch):
+def test_evict_stale_after_one_hour():
     store = JobStore()
     rec = store.create("task")
     store.mark_completed(rec.job_id, [])
-    # Pretend time jumped 2 hours ahead
-    future = datetime(2024, 1, 1, 15, 0, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr("job_store.datetime", MagicMock(wraps=datetime))
-    from job_store import datetime as dt_cls
-
-    class FrozenDatetime:
-        @classmethod
-        def now(cls, tz=None):
-            return future
-
-        @classmethod
-        def __getattr__(cls, name):
-            return getattr(datetime, name)
-
-    monkeypatch.setattr("job_store.datetime", FrozenDatetime)
+    # Age the terminal record past the eviction window (1 hour).
+    with store._lock:
+        store._jobs[rec.job_id].updated_at = datetime.now(timezone.utc) - timedelta(hours=2)
     store._evict_stale()
     assert store.get(rec.job_id) is None

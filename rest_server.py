@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import threading
 import uuid
 from pathlib import Path
@@ -223,7 +224,7 @@ def create_job(body: SingleTaskRequest):
     status_code=202,
     tags=["Jobs"],
     summary="Create a batch generation job",
-    description="Submit multiple tasks in a single request. Each task uses the same settings format as the single-task endpoint.",
+    description="Submit multiple tasks in one request; each uses the single-task settings format.",
     dependencies=[Depends(_require_session)],
 )
 def create_job_batch(body: BatchTaskRequest):
@@ -326,10 +327,8 @@ def cancel_job(job_id: str):
     if outcome == "rejected":
         raise HTTPException(409, detail=f"Job {job_id} cannot be cancelled")
     if session_job is not None:
-        try:
+        with contextlib.suppress(Exception):
             session_job.cancel()
-        except Exception:
-            pass
     return CancelResponse(job_id=job_id, state="cancelling")
 
 

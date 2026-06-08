@@ -7,9 +7,10 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .schemas import JobState
+if TYPE_CHECKING:
+    from .schemas import JobState
 
 
 @dataclass
@@ -188,10 +189,10 @@ class JobStore:
 
         Returns ``(outcome, session_job)`` where *outcome* is one of:
 
-        * ``"ok"``        – transitioned to *cancelling*; caller should
+        * ``"ok"``        - transitioned to *cancelling*; caller should
                             invoke ``session_job.cancel()`` if not None.
-        * ``"not_found"`` – no record with this id.
-        * ``"rejected"``  – job is already terminal or cancelling.
+        * ``"not_found"`` - no record with this id.
+        * ``"rejected"``  - job is already terminal or cancelling.
         """
         with self._lock:
             record = self._jobs.get(job_id)
