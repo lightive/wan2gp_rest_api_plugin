@@ -29,7 +29,7 @@ class CleanupConfig:
     allowed_roots: list[Path] = field(default_factory=list)
 
     @classmethod
-    def load_or_create(cls, config_path: Path, wan2gp_root: Path) -> "CleanupConfig":
+    def load_or_create(cls, config_path: Path, wan2gp_root: Path) -> CleanupConfig:
         default_root = (Path(wan2gp_root) / "outputs").resolve()
         raw: dict = {}
         if config_path.exists():
@@ -260,7 +260,7 @@ def _unlink_or_rmdir(link: Path) -> bool:
             return False
 
 
-def run_startup_cleanup(upload_base: Path, ledger: "Ledger", config: CleanupConfig) -> None:
+def run_startup_cleanup(upload_base: Path, ledger: Ledger, config: CleanupConfig) -> None:
     """Best-effort one-time cleanup. Never raises -- must not block startup."""
     temp_removed = 0
     out_deleted = 0
@@ -268,12 +268,12 @@ def run_startup_cleanup(upload_base: Path, ledger: "Ledger", config: CleanupConf
     if config.clean_uploads:
         try:
             temp_removed = clean_uploads(upload_base)
-        except Exception as exc:  # noqa: BLE001 -- never block startup
+        except Exception as exc:
             print(f"[Wan2GP REST] upload cleanup failed: {exc}")
     if config.clean_outputs:
         try:
             out_deleted, out_freed = ledger.prune(config.retention_days, config.allowed_roots)
-        except Exception as exc:  # noqa: BLE001 -- never block startup
+        except Exception as exc:
             print(f"[Wan2GP REST] output cleanup failed: {exc}")
     mb = out_freed / (1024 * 1024)
     print(f"[Wan2GP REST] cleanup: temp {temp_removed} items, "

@@ -1,10 +1,11 @@
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from cleanup import CleanupConfig
+from cleanup import CleanupConfig, Ledger, clean_uploads, run_startup_cleanup
 
 
 def test_config_created_with_defaults_when_missing(tmp_path: Path):
@@ -56,9 +57,6 @@ def test_garbage_toggle_falls_back_to_default(tmp_path: Path):
     cfg_path.write_text(json.dumps({"clean_outputs": "yes"}))
     cfg = CleanupConfig.load_or_create(cfg_path, tmp_path / "wan2gp")
     assert cfg.clean_outputs is True  # non-bool ignored -> default True
-
-
-from cleanup import Ledger
 
 
 def _ledger(tmp_path: Path) -> Ledger:
@@ -119,7 +117,11 @@ def test_prune_deletes_expired_and_keeps_recent(tmp_path: Path):
     assert not old_file.exists()
     assert new_file.exists()
     # ledger compacted: only the surviving (recent) entry remains
-    remaining = [json.loads(x) for x in (tmp_path / "_state" / "generated_ledger.jsonl").read_text().splitlines() if x.strip()]
+    remaining = [
+        json.loads(x)
+        for x in (tmp_path / "_state" / "generated_ledger.jsonl").read_text().splitlines()
+        if x.strip()
+    ]
     assert len(remaining) == 1
     assert remaining[0]["path"] == str(new_file)
 
@@ -200,11 +202,6 @@ def test_prune_skips_malformed_lines(tmp_path: Path):
     assert not good.exists()
 
 
-import os
-
-from cleanup import clean_uploads
-
-
 def test_clean_uploads_removes_children(tmp_path: Path):
     base = tmp_path / "_uploads"
     (base / "grp1").mkdir(parents=True)
@@ -236,9 +233,6 @@ def test_clean_uploads_does_not_escape_via_symlink(tmp_path: Path):
     clean_uploads(base)
     assert not (base / "link").exists()  # link entry removed
     assert keeper.exists()               # target contents untouched
-
-
-from cleanup import run_startup_cleanup
 
 
 def test_orchestrator_runs_both_steps(tmp_path: Path):

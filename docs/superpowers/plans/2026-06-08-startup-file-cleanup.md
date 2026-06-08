@@ -135,7 +135,7 @@ class CleanupConfig:
     allowed_roots: list[Path] = field(default_factory=list)
 
     @classmethod
-    def load_or_create(cls, config_path: Path, wan2gp_root: Path) -> "CleanupConfig":
+    def load_or_create(cls, config_path: Path, wan2gp_root: Path) -> CleanupConfig:
         default_root = (Path(wan2gp_root) / "outputs").resolve()
         raw: dict = {}
         if config_path.exists():
@@ -211,6 +211,8 @@ git commit -m "feat: add CleanupConfig with auto-create and validation"
 
 ```python
 # tests/test_cleanup.py (append)
+# NOTE: hoist `from cleanup import Ledger` into the top import block
+# (consolidate with the existing `from cleanup import ...`) to satisfy ruff E402.
 from cleanup import Ledger
 
 
@@ -580,6 +582,8 @@ git commit -m "test: cover prune safety (containment, dir, dedup, malformed)"
 
 ```python
 # tests/test_cleanup.py (append)
+# NOTE: hoist `import os` and `from cleanup import clean_uploads` into the top
+# import block (consolidate the cleanup import) to satisfy ruff E402.
 import os
 
 from cleanup import clean_uploads
@@ -694,6 +698,8 @@ git commit -m "feat: add clean_uploads purge with symlink escape guard"
 
 ```python
 # tests/test_cleanup.py (append)
+# NOTE: hoist `from cleanup import run_startup_cleanup` into the top import block
+# (consolidate the cleanup import) to satisfy ruff E402.
 from cleanup import run_startup_cleanup
 
 
@@ -748,7 +754,7 @@ Expected: FAIL — `ImportError: cannot import name 'run_startup_cleanup'`
 
 ```python
 # cleanup.py (append, module level)
-def run_startup_cleanup(upload_base: Path, ledger: "Ledger", config: CleanupConfig) -> None:
+def run_startup_cleanup(upload_base: Path, ledger: Ledger, config: CleanupConfig) -> None:
     """Best-effort one-time cleanup. Never raises -- must not block startup."""
     temp_removed = 0
     out_deleted = 0
@@ -756,12 +762,12 @@ def run_startup_cleanup(upload_base: Path, ledger: "Ledger", config: CleanupConf
     if config.clean_uploads:
         try:
             temp_removed = clean_uploads(upload_base)
-        except Exception as exc:  # noqa: BLE001 -- never block startup
+        except Exception as exc:
             print(f"[Wan2GP REST] upload cleanup failed: {exc}")
     if config.clean_outputs:
         try:
             out_deleted, out_freed = ledger.prune(config.retention_days, config.allowed_roots)
-        except Exception as exc:  # noqa: BLE001 -- never block startup
+        except Exception as exc:
             print(f"[Wan2GP REST] output cleanup failed: {exc}")
     mb = out_freed / (1024 * 1024)
     print(f"[Wan2GP REST] cleanup: temp {temp_removed} items, "
@@ -981,7 +987,7 @@ Expected: PASS (all tests; `plugin.py` is import-guarded behind `shared.*` so it
 - [ ] **Step 4: Lint**
 
 Run: `ruff check cleanup.py callbacks.py plugin.py tests/test_cleanup.py`
-Expected: no errors (broad-except lines carry `# noqa: BLE001`)
+Expected: no errors (repo ruff `select` does not enable `BLE`, so the broad-except needs no `# noqa`)
 
 - [ ] **Step 5: Commit**
 
