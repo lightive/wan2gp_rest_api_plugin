@@ -606,6 +606,17 @@ make typecheck        # mypy .
 make check            # lint + typecheck + test
 ```
 
+### Versioning
+
+The version string lives in three files (`pyproject.toml`, `plugin.py`, `rest_server.py`) and must stay in sync. Don't edit them by hand — run the bump script, which rewrites all three at once:
+
+```powershell
+./version_up.ps1 1.2.3      # set an explicit version
+./version_up.ps1 patch      # or auto-bump from the current version: major | minor | patch
+```
+
+Then review `git diff` and commit (e.g. `chore: bump version to 1.2.3`).
+
 ### Project Structure
 
 ```
@@ -618,6 +629,7 @@ callbacks.py         ─ Wan2GP callback ─> JobStore state adapter
 cleanup.py           ─ Startup file cleanup (temp uploads + ledgered old outputs)
 tests/               ─ Unit tests (job store, uploads, cleanup, callbacks)
 postman_collections/ ─ Postman collection for testing the API
+version_up.ps1       ─ Bump the version across all source files at once
 ```
 
 ## References
