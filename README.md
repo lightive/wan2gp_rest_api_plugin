@@ -13,6 +13,8 @@ A [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) plugin that exposes image and
 4. **Enable & restart** — Check **"Wan2GP REST API"**, click **Save Settings**, then restart Wan2GP.
 5. **Ready** — The API is live at `http://127.0.0.1:7989`. Open `/docs` for interactive Swagger UI.
 
+> The server listens on `0.0.0.0:7989`, so it is reachable from your LAN — restrict with a firewall if you want local-only access; access locally at `http://127.0.0.1:7989`.
+
 ## API Endpoints
 
 | Method | Path | Description |
@@ -30,11 +32,13 @@ A [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) plugin that exposes image and
 {"job_id": "550e8400-...", "state": "accepted"}
 ```
 
-**Job state flow:** `accepted` → `queued` → `running` → `completed` | `failed` | `cancelling` → `cancelled`
+**Job state flow:** `accepted` → `running` → `completed` | `failed`. On cancellation: `running` → `cancelling` → `cancelled`. (The `queued` state is reserved but not currently emitted.)
 
 ## Task Settings
 
-Settings follow the Wan2GP **Export Settings** JSON format. Use the Export Settings button in the Wan2GP UI to discover all available fields for a given model. **Any unlisted field is still accepted and forwarded to Wan2GP.**
+Settings follow the Wan2GP **Export Settings** JSON format. Use the Export Settings button in the Wan2GP UI to discover all available fields for a given model.
+
+> The API validates only a handful of fields (such as `model_type` and `prompt`) and forwards **everything else as-is** to Wan2GP. The tables below document common Wan2GP "Export Settings" — any unlisted field is still accepted and passed straight through.
 
 ### Core Parameters
 
@@ -190,22 +194,12 @@ Upload files via `POST /uploads` first, then use the returned paths in these fie
 | `MMAudio_prompt` | str | Prompt for audio generation |
 | `MMAudio_neg_prompt` | str | Negative prompt for audio generation |
 
-### Motion
+### Additional Wan2GP Settings
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `motion_amplitude` | float | Motion intensity/amplitude control |
-
-### Custom Settings
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
 | `custom_settings` | str | JSON string of custom model-specific settings. Structure: `[{"name":"param","value":1.0,"type":"float"}, ...]` |
-
-### Self-Refiner
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
 | `self_refiner_setting` | int | Self-refiner iterations (`0` = off) |
 | `self_refiner_plan` | str | Self-refiner plan string (per-step guidance) |
 | `self_refiner_f_uncertainty` | float | Uncertainty factor for self-refiner |
@@ -363,6 +357,8 @@ Supported attachment keys: `image_start`, `image_end`, `image_refs`, `image_guid
 
 ## Full Examples
 
+> For minimal copy-paste JSON of each scenario (text-to-image, text-to-video, start/end interpolation, LoRA, MMAudio), see the **Quick Reference** above.
+
 ### Image Generation (Flux 2 Klein, 1024x1024)
 
 ```bash
@@ -449,66 +445,6 @@ curl -X POST http://127.0.0.1:7989/jobs \
 >
 > Models that don't support start images will return a validation error.
 
-### Video Generation with Start and End Images (Image-to-Video Interpolation)
-
-```bash
-curl -X POST http://127.0.0.1:7989/jobs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task": {
-      "image_mode": 0,
-      "image_prompt_type": "SE",
-      "image_start": "/path/to/start.png",
-      "image_end": "/path/to/end.png",
-      "prompt": "A smooth transition from morning to sunset",
-      "resolution": "1280x720",
-      "video_length": 121,
-      "num_inference_steps": 8,
-      "model_type": "ltx2_22B_distilled_gguf_q4_k_m",
-      "model_filename": "https://huggingface.co/DeepBeepMeep/LTX-2/resolve/main/ltx-2.3-22b-distilled-Q4_K_M_light.gguf"
-    }
-  }'
-```
-
-### Video with LoRA
-
-```bash
-curl -X POST http://127.0.0.1:7989/jobs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task": {
-      "image_mode": 0,
-      "prompt": "A cyberpunk city at night",
-      "resolution": "1280x720",
-      "video_length": 121,
-      "num_inference_steps": 20,
-      "model_type": "ltx2_22B_distilled_gguf_q4_k_m",
-      "activated_loras": ["cyberpunk_v2"],
-      "loras_multipliers": "{\"cyberpunk_v2\": 0.7}"
-    }
-  }'
-```
-
-### Video with MMAudio (Auto-Generate Audio)
-
-```bash
-curl -X POST http://127.0.0.1:7989/jobs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task": {
-      "image_mode": 0,
-      "prompt": "Rain falling on a city street at night",
-      "resolution": "1280x720",
-      "video_length": 121,
-      "num_inference_steps": 20,
-      "model_type": "ltx2_22B_distilled_gguf_q4_k_m",
-      "MMAudio_setting": 3,
-      "MMAudio_prompt": "heavy rain, thunder, city traffic ambience",
-      "MMAudio_neg_prompt": "music, speech, silence"
-    }
-  }'
-```
-
 ### Python Client
 
 ```python
@@ -573,6 +509,8 @@ When polling `GET /jobs/{job_id}`, the response includes both local file paths a
 }
 ```
 
+Each item in the `errors[]` array has the shape `{ "message", "stage", "task_index", "task_id" }`.
+
 ## Downloading Generated Files
 
 Use the `download_url` from the job status response, or construct the URL manually:
@@ -585,16 +523,19 @@ curl -O http://127.0.0.1:7989/jobs/{job_id}/download/0
 ## Disk Cleanup
 
 To keep disk usage bounded over long-term use, the plugin runs a one-time safe
-cleanup each time it starts (before the API accepts requests):
+cleanup each time it starts (before the API accepts requests). Cleanup is
+best-effort: it never raises and never blocks the server from starting.
 
 1. **Temp uploads** — all leftover files under `_uploads/` are removed. These are
    ephemeral: an uploaded file that is not submitted to a job before a restart is
    discarded.
 2. **Old generated outputs** — files the plugin itself generated and recorded in
    its ledger (`_state/generated_ledger.jsonl`) that are older than the retention
-   window are deleted. Your manual Wan2GP UI generations are **never** touched —
-   only files inside the configured output root that the plugin created are
-   eligible.
+   window are deleted. A file is recorded to the ledger **only when its job
+   completes successfully**. Your manual Wan2GP UI generations — and any outputs
+   created before this feature existed — are **never** touched, because they are
+   not in the ledger; only files inside the configured output root that the
+   plugin recorded are eligible.
 
 ### Configuration — `cleanup_config.json`
 
@@ -631,9 +572,9 @@ writing the ledger at all, so it cannot grow.
 | HTTP Status | When |
 |-------------|------|
 | `503` | Wan2GP session not initialized |
-| `400` | Invalid request body |
-| `422` | Task validation failed (e.g. missing required fields, unsupported attachment for model) |
-| `404` | Job not found |
+| `400` | No valid files in a `POST /uploads` request |
+| `422` | Request body or task validation failed (missing required fields, unsupported attachment for model) |
+| `404` | Job or file not found (unknown job_id, or download file_index out of range) |
 | `409` | Cannot cancel a terminal job (already completed, failed, or cancelled) |
 
 Generation failures set `state: "failed"` with details in the `errors` array.
@@ -670,7 +611,8 @@ schemas.py           ─ Pydantic request/response models
 job_store.py         ─ Thread-safe in-memory job state registry
 uploads.py           ─ Upload manager & base64 data-URI resolution
 callbacks.py         ─ Wan2GP callback ─> JobStore state adapter
-tests/               ─ Unit tests for standalone modules
+cleanup.py           ─ Startup file cleanup (temp uploads + ledgered old outputs)
+tests/               ─ Unit tests (job store, uploads, cleanup, callbacks)
 postman_collections/ ─ Postman collection for testing the API
 ```
 

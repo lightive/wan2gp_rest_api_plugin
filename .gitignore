@@ -40,3 +40,6 @@ cleanup_config.json
 # Coverage
 .coverage
 htmlcov/
+
+# pytest
+.pytest_cache/
