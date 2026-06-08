@@ -73,5 +73,5 @@ class RestApiPlugin(WAN2GPPlugin):
         configure(store, session, callback_adapter, upload_manager)
 
         # 6. Start server
-        self._server_thread = start_server(host="0.0.0.0", port=7989)
+        self._server_thread = start_server(host="127.0.0.1", port=7989)
         print("[Wan2GP REST] Plugin initialized. REST API is ready.")

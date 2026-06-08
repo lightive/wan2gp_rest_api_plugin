@@ -13,7 +13,7 @@ A [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) plugin that exposes image and
 4. **Enable & restart** — Check **"Wan2GP REST API"**, click **Save Settings**, then restart Wan2GP.
 5. **Ready** — The API is live at `http://127.0.0.1:7989`. Open `/docs` for interactive Swagger UI.
 
-> The server listens on `0.0.0.0:7989`, so it is reachable from your LAN — restrict with a firewall if you want local-only access; access locally at `http://127.0.0.1:7989`.
+> The server binds `127.0.0.1:7989` (localhost only) and has no authentication — it is not reachable from other machines.
 
 ## API Endpoints
 

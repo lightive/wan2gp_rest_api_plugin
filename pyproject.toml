@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wan2gp-rest-api-plugin"
-version = "0.1.0"
+version = "1.0.7"
 description = "Exposes Wan2GP generation capabilities via a localhost REST API."
 readme = "README.md"
 license = {text = "MIT"}
@@ -57,5 +57,6 @@ plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 asyncio_mode = "auto"
 filterwarnings = ["ignore::DeprecationWarning"]
