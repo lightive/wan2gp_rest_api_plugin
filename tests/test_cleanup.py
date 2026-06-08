@@ -236,3 +236,48 @@ def test_clean_uploads_does_not_escape_via_symlink(tmp_path: Path):
     clean_uploads(base)
     assert not (base / "link").exists()  # link entry removed
     assert keeper.exists()               # target contents untouched
+
+
+from cleanup import run_startup_cleanup
+
+
+def test_orchestrator_runs_both_steps(tmp_path: Path):
+    base = tmp_path / "_uploads"
+    (base / "grp1").mkdir(parents=True)
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    old_file = outputs / "old.png"
+    old_file.write_bytes(b"x" * 20)
+    lg = _write_ledger(tmp_path, [{"path": str(old_file), "ts": _old_ts(40)}])
+
+    cfg = CleanupConfig(clean_uploads=True, clean_outputs=True,
+                        retention_days=30, allowed_roots=[outputs.resolve()])
+    run_startup_cleanup(base, lg, cfg)  # must not raise
+
+    assert list(base.iterdir()) == []
+    assert not old_file.exists()
+
+
+def test_orchestrator_respects_toggles(tmp_path: Path):
+    base = tmp_path / "_uploads"
+    (base / "grp1").mkdir(parents=True)
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    old_file = outputs / "old.png"
+    old_file.write_bytes(b"x" * 20)
+    lg = _write_ledger(tmp_path, [{"path": str(old_file), "ts": _old_ts(40)}])
+
+    cfg = CleanupConfig(clean_uploads=False, clean_outputs=False,
+                        retention_days=30, allowed_roots=[outputs.resolve()])
+    run_startup_cleanup(base, lg, cfg)
+
+    assert (base / "grp1").exists()  # uploads untouched
+    assert old_file.exists()         # outputs untouched
+
+
+def test_orchestrator_never_raises_on_bad_input(tmp_path: Path):
+    cfg = CleanupConfig(clean_uploads=True, clean_outputs=True,
+                        retention_days=30, allowed_roots=[tmp_path])
+    bad_ledger = Ledger(tmp_path / "_state" / "missing.jsonl")
+    # Non-existent upload base + missing ledger must be handled silently.
+    run_startup_cleanup(tmp_path / "no_such_uploads", bad_ledger, cfg)
