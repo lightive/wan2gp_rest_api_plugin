@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from .schemas import serialize_wan2gp_error
 
 if TYPE_CHECKING:
+    from .cleanup import Ledger
     from .job_store import JobStore
     from .uploads import UploadManager
 
@@ -26,9 +27,15 @@ class JobCallbackAdapter:
     from routing to an already-finished job.
     """
 
-    def __init__(self, store: JobStore, upload_manager: UploadManager | None = None) -> None:
+    def __init__(
+        self,
+        store: JobStore,
+        upload_manager: UploadManager | None = None,
+        ledger: Ledger | None = None,
+    ) -> None:
         self._store = store
         self._upload_manager = upload_manager
+        self._ledger = ledger
         self._job_lock = threading.Lock()
         self._active_job_id: str | None = None
 
@@ -76,6 +83,8 @@ class JobCallbackAdapter:
             return
         if result.success:
             self._store.mark_completed(job_id, list(result.generated_files))
+            if self._ledger is not None:
+                self._ledger.record(list(result.generated_files))
         elif any(
             getattr(e, "stage", None) == "cancelled" for e in result.errors
         ):
