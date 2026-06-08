@@ -140,3 +140,61 @@ def test_prune_drops_entry_for_missing_file(tmp_path: Path):
 def test_prune_missing_ledger_returns_zero(tmp_path: Path):
     lg = Ledger(tmp_path / "_state" / "nope.jsonl")
     assert lg.prune(30, [tmp_path]) == (0, 0)
+
+
+def test_prune_skips_path_outside_allowed_root(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    outsider = tmp_path / "important.png"  # NOT under outputs/
+    outsider.write_bytes(b"keep me")
+    lg = _write_ledger(tmp_path, [{"path": str(outsider), "ts": _old_ts(99)}])
+
+    deleted, _ = lg.prune(30, [outputs.resolve()])
+    assert deleted == 0
+    assert outsider.exists()  # never deleted
+    remaining = [x for x in (tmp_path / "_state" / "generated_ledger.jsonl").read_text().splitlines() if x.strip()]
+    assert len(remaining) == 1  # retained, not dropped
+
+
+def test_prune_does_not_delete_directory(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    a_dir = outputs / "subdir"
+    a_dir.mkdir(parents=True)
+    lg = _write_ledger(tmp_path, [{"path": str(a_dir), "ts": _old_ts(99)}])
+    deleted, _ = lg.prune(30, [outputs.resolve()])
+    assert deleted == 0
+    assert a_dir.exists()
+
+
+def test_prune_dedup_latest_wins(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    f = outputs / "reused.png"
+    f.write_bytes(b"new content")
+    # Older record is expired, newer record for the SAME path is fresh.
+    lg = _write_ledger(tmp_path, [
+        {"path": str(f), "ts": _old_ts(99)},
+        {"path": str(f), "ts": _old_ts(1)},
+    ])
+    deleted, _ = lg.prune(30, [outputs.resolve()])
+    assert deleted == 0  # latest record wins -> not expired -> file survives
+    assert f.exists()
+
+
+def test_prune_skips_malformed_lines(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    good = outputs / "good.png"
+    good.write_bytes(b"z" * 10)
+    p = tmp_path / "_state" / "generated_ledger.jsonl"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(
+        "not json at all\n"
+        + json.dumps({"path": str(good), "ts": _old_ts(40)}) + "\n"
+        + "{ broken\n"
+    )
+    lg = Ledger(p)
+    deleted, freed = lg.prune(30, [outputs.resolve()])
+    assert deleted == 1
+    assert freed == 10
+    assert not good.exists()
