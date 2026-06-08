@@ -100,3 +100,118 @@ class Ledger:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             with self._path.open("a", encoding="utf-8") as fh:
                 fh.write("\n".join(lines) + "\n")
+
+    def prune(self, retention_days: int, allowed_roots: list[Path]) -> tuple[int, int]:
+        with self._lock:
+            if not self._path.exists():
+                return (0, 0)
+            entries = self._read_entries()  # deduped, latest ts wins
+            cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+            survivors: list[dict] = []
+            deleted = 0
+            freed = 0
+            for entry in entries:
+                ts = _parse_ts(entry.get("ts"))
+                path_str = entry.get("path")
+                if ts is None or not isinstance(path_str, str):
+                    continue  # unusable entry -> drop
+                if ts >= cutoff:
+                    survivors.append(entry)
+                    continue
+                # --- expired: guarded deletion ---
+                target = _resolve(path_str)
+                if target is None:
+                    continue  # bad path -> drop
+                if not _within_roots(target, allowed_roots):
+                    survivors.append(entry)  # outside allowed root -> never delete
+                    continue
+                # _resolve() already followed symlinks, so the containment
+                # check above is the real guard; only the dir check remains.
+                if target.is_dir():
+                    survivors.append(entry)  # never delete a directory as a file
+                    continue
+                try:
+                    size = target.stat().st_size
+                except FileNotFoundError:
+                    continue  # already gone -> drop entry
+                except OSError:
+                    survivors.append(entry)  # can't stat -> keep record
+                    continue
+                try:
+                    target.unlink(missing_ok=True)
+                except OSError:
+                    survivors.append(entry)  # deletion failed -> keep record
+                    continue
+                deleted += 1
+                freed += size
+            self._atomic_rewrite(survivors)
+            return (deleted, freed)
+
+    def _read_entries(self) -> list[dict]:
+        try:
+            text = self._path.read_text(encoding="utf-8")
+        except OSError:
+            return []
+        latest: dict[str, dict] = {}
+        order: list[str] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue  # skip malformed line
+            if not isinstance(obj, dict) or not isinstance(obj.get("path"), str):
+                continue
+            key = _path_key(obj["path"])
+            if key not in latest:
+                order.append(key)
+            else:
+                old = _parse_ts(latest[key].get("ts"))
+                new = _parse_ts(obj.get("ts"))
+                if old is not None and new is not None and new < old:
+                    continue  # keep the newer record
+            latest[key] = obj
+        return [latest[k] for k in order]
+
+    def _atomic_rewrite(self, entries: list[dict]) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as fh:
+            for entry in entries:
+                fh.write(json.dumps(entry) + "\n")
+        os.replace(tmp, self._path)
+
+
+def _parse_ts(value) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _path_key(path: str) -> str:
+    return os.path.normcase(os.path.normpath(path))
+
+
+def _resolve(path_str: str) -> Path | None:
+    if not isinstance(path_str, str) or not path_str:
+        return None
+    try:
+        return Path(path_str).resolve()
+    except (OSError, ValueError):
+        return None
+
+
+def _within_roots(path: Path, roots: list[Path]) -> bool:
+    for root in roots:
+        try:
+            if path.is_relative_to(root):
+                return True
+        except (OSError, ValueError):
+            continue
+    return False

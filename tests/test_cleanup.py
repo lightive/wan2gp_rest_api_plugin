@@ -87,3 +87,56 @@ def test_record_skips_non_string_and_empty(tmp_path: Path):
     lines = (tmp_path / "_state" / "generated_ledger.jsonl").read_text().splitlines()
     assert len(lines) == 1
     assert json.loads(lines[0])["path"] == "/out/ok.png"
+
+
+def _write_ledger(tmp_path: Path, entries: list[dict]) -> Ledger:
+    p = tmp_path / "_state" / "generated_ledger.jsonl"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+    return Ledger(p)
+
+
+def _old_ts(days: int) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def test_prune_deletes_expired_and_keeps_recent(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    old_file = outputs / "old.png"
+    old_file.write_bytes(b"x" * 100)
+    new_file = outputs / "new.png"
+    new_file.write_bytes(b"y" * 50)
+
+    lg = _write_ledger(tmp_path, [
+        {"path": str(old_file), "ts": _old_ts(40)},
+        {"path": str(new_file), "ts": _old_ts(1)},
+    ])
+    deleted, freed = lg.prune(30, [outputs.resolve()])
+
+    assert deleted == 1
+    assert freed == 100
+    assert not old_file.exists()
+    assert new_file.exists()
+    # ledger compacted: only the surviving (recent) entry remains
+    remaining = [json.loads(x) for x in (tmp_path / "_state" / "generated_ledger.jsonl").read_text().splitlines() if x.strip()]
+    assert len(remaining) == 1
+    assert remaining[0]["path"] == str(new_file)
+
+
+def test_prune_drops_entry_for_missing_file(tmp_path: Path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    lg = _write_ledger(tmp_path, [
+        {"path": str(outputs / "gone.png"), "ts": _old_ts(40)},
+    ])
+    deleted, freed = lg.prune(30, [outputs.resolve()])
+    assert deleted == 0
+    assert freed == 0
+    remaining = [x for x in (tmp_path / "_state" / "generated_ledger.jsonl").read_text().splitlines() if x.strip()]
+    assert remaining == []  # gone file -> entry dropped
+
+
+def test_prune_missing_ledger_returns_zero(tmp_path: Path):
+    lg = Ledger(tmp_path / "_state" / "nope.jsonl")
+    assert lg.prune(30, [tmp_path]) == (0, 0)
