@@ -39,7 +39,45 @@ _callback_adapter: JobCallbackAdapter | None = None
 _upload_manager: UploadManager | None = None
 _submit_lock = threading.Lock()
 
-app = FastAPI(title="Wan2GP REST API", version="1.0.0")
+_API_DESCRIPTION = """\
+Submit image/video generation jobs to Wan2GP, track progress, and download results — from any HTTP client.
+
+## Workflow
+1. **(optional) Upload input media** via `POST /uploads`, or embed it inline as a base64 `data:` URI.
+2. **Submit a job** with `POST /jobs` (single task) or `POST /jobs/batch` (multiple). Task settings follow the
+   Wan2GP **Export Settings** JSON format — the API validates a few common fields and forwards everything else to
+   Wan2GP as-is, so any field from the Wan2GP UI *Export Settings* button works.
+3. **Poll** `GET /jobs/{job_id}` until `state` is terminal.
+4. **Download** each output via the `download_url`s in the status response.
+
+## Job state flow
+`accepted` → `running` → `completed` | `failed`. Cancellation: `running` → `cancelling` → `cancelled`.
+(`queued` is reserved but not currently emitted.)
+
+## Attachments
+These keys accept either a server path returned by `POST /uploads` **or** an inline `data:<mime>;base64,…` value:
+`image_start`, `image_end`, `image_refs`, `image_guide`, `image_mask`, `video_guide`, `video_mask`,
+`video_source`, `audio_guide`, `audio_guide2`, `audio_source`, `custom_guide`.
+Set `image_prompt_type` to control start/end image use: `"S"` start, `"E"` end, `"SE"` both, `""` none.
+
+## Disk cleanup
+On startup the plugin removes leftover upload temp files and deletes **its own** generated outputs older than the
+retention window (default 30 days; edit `cleanup_config.json`). Your manual Wan2GP UI outputs are never touched.
+
+> ⚠️ The server binds `0.0.0.0:7989` (reachable from your LAN). Restrict with a firewall for local-only access.
+"""
+
+_OPENAPI_TAGS = [
+    {"name": "Jobs", "description": "Submit, track, cancel, and download generation jobs."},
+    {"name": "Uploads", "description": "Upload input media for use in task settings."},
+]
+
+app = FastAPI(
+    title="Wan2GP REST API",
+    version="1.0.7",
+    description=_API_DESCRIPTION,
+    openapi_tags=_OPENAPI_TAGS,
+)
 
 
 def configure(
@@ -157,6 +195,7 @@ def _submit_and_track(job_id: str, submit_fn) -> None:
     "/jobs",
     response_model=JobCreatedResponse,
     status_code=202,
+    tags=["Jobs"],
     summary="Create a generation job",
     description=(
         "Submit a single generation task. "
@@ -182,6 +221,7 @@ def create_job(body: SingleTaskRequest):
     "/jobs/batch",
     response_model=JobCreatedResponse,
     status_code=202,
+    tags=["Jobs"],
     summary="Create a batch generation job",
     description="Submit multiple tasks in a single request. Each task uses the same settings format as the single-task endpoint.",
     dependencies=[Depends(_require_session)],
@@ -202,6 +242,7 @@ def create_job_batch(body: BatchTaskRequest):
 @app.get(
     "/jobs",
     response_model=JobListResponse,
+    tags=["Jobs"],
     summary="List all jobs",
     dependencies=[Depends(_require_session)],
 )
@@ -237,6 +278,7 @@ def _build_download_links(job_id: str, files: list[str], request_host: str) -> l
 @app.get(
     "/jobs/{job_id}",
     response_model=JobStatusResponse,
+    tags=["Jobs"],
     summary="Get job status",
     dependencies=[Depends(_require_session)],
 )
@@ -272,6 +314,7 @@ def get_job_status(job_id: str, request: Request):
 @app.post(
     "/jobs/{job_id}/cancel",
     response_model=CancelResponse,
+    tags=["Jobs"],
     summary="Cancel a job",
     dependencies=[Depends(_require_session)],
 )
@@ -293,6 +336,7 @@ def cancel_job(job_id: str):
 @app.get(
     "/jobs/{job_id}/download/{file_index}",
     response_class=FileResponse,
+    tags=["Jobs"],
     summary="Download a generated file",
     dependencies=[Depends(_require_session)],
 )
@@ -314,6 +358,7 @@ def download_file(job_id: str, file_index: int):
     "/uploads",
     response_model=UploadResponse,
     status_code=201,
+    tags=["Uploads"],
     summary="Upload media files",
     description=(
         "Upload one or more image/video/audio files. "

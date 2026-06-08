@@ -14,14 +14,27 @@ from pydantic import BaseModel, ConfigDict, Field
 # ---------------------------------------------------------------------------
 
 class TaskSettings(BaseModel):
-    """Generation settings passed directly to the Wan2GP session.
+    """Generation settings for a single task (Wan2GP "Export Settings" format).
 
-    Use the Wan2GP UI "Export Settings" button to discover every available
-    field for a given model.  The fields listed below are the most commonly
-    used ones; any unlisted field is still accepted and forwarded.
+    Only the common fields below are validated; **any other field is accepted
+    and forwarded to Wan2GP unchanged**, so anything from the Wan2GP UI
+    "Export Settings" button works. Attachment keys (e.g. ``image_start``,
+    ``video_source``) accept a path from ``POST /uploads`` or an inline
+    ``data:<mime>;base64,…`` value.
     """
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "example": {
+                "image_mode": 1,
+                "prompt": "A glass greenhouse filled with lush tropical plants, misty light",
+                "resolution": "1024x1024",
+                "num_inference_steps": 4,
+                "model_type": "flux2_klein_9b",
+            }
+        },
+    )
 
     # -- Core ---------------------------------------------------------------
     prompt: str | None = Field(None, description="Text prompt describing the desired output.")
@@ -46,6 +59,20 @@ class TaskSettings(BaseModel):
 
 class SingleTaskRequest(BaseModel):
     """Submit a single generation task."""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "task": {
+                    "image_mode": 0,
+                    "prompt": "Ocean waves crashing on rocks at sunset, cinematic",
+                    "resolution": "1280x720",
+                    "video_length": 121,
+                    "num_inference_steps": 8,
+                    "model_type": "ltx2_22B_distilled_gguf_q4_k_m",
+                }
+            }
+        }
+    )
     task: TaskSettings
 
 
@@ -86,6 +113,28 @@ class DownloadLink(BaseModel):
 
 class JobStatusResponse(BaseModel):
     """GET /jobs/{job_id} response."""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "job_id": "481065ae-0213-4bf7-bfde-70c1905b5ba1",
+                "state": "completed",
+                "phase": "completed",
+                "raw_phase": "VAE Decoding",
+                "status": "done",
+                "progress": 100,
+                "current_step": 4,
+                "total_steps": 4,
+                "generated_files": ["/app/outputs/2026-04-01-13h55m56s_output.jpg"],
+                "download_links": [
+                    {
+                        "filename": "2026-04-01-13h55m56s_output.jpg",
+                        "download_url": "http://127.0.0.1:7989/jobs/481065ae-0213-4bf7-bfde-70c1905b5ba1/download/0",
+                    }
+                ],
+                "errors": [],
+            }
+        }
+    )
     job_id: str
     state: JobState
     phase: str | None = None
