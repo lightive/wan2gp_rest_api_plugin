@@ -79,3 +79,24 @@ def _valid_days(value) -> int:
             print(f"[Wan2GP REST] invalid output_retention_days={value!r}; using {_DEFAULT_RETENTION_DAYS}")
         return _DEFAULT_RETENTION_DAYS
     return value
+
+
+class Ledger:
+    """Append-only JSON-lines record of files the plugin generated."""
+
+    def __init__(self, ledger_path: Path) -> None:
+        self._path = Path(ledger_path)
+        self._lock = threading.Lock()
+
+    def record(self, paths: list[str]) -> None:
+        lines = [
+            json.dumps({"path": p, "ts": datetime.now(timezone.utc).isoformat()})
+            for p in paths
+            if isinstance(p, str) and p
+        ]
+        if not lines:
+            return
+        with self._lock:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            with self._path.open("a", encoding="utf-8") as fh:
+                fh.write("\n".join(lines) + "\n")

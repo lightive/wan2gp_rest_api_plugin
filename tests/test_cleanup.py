@@ -56,3 +56,34 @@ def test_garbage_toggle_falls_back_to_default(tmp_path: Path):
     cfg_path.write_text(json.dumps({"clean_outputs": "yes"}))
     cfg = CleanupConfig.load_or_create(cfg_path, tmp_path / "wan2gp")
     assert cfg.clean_outputs is True  # non-bool ignored -> default True
+
+
+from cleanup import Ledger
+
+
+def _ledger(tmp_path: Path) -> Ledger:
+    return Ledger(tmp_path / "_state" / "generated_ledger.jsonl")
+
+
+def test_record_appends_one_line_per_path(tmp_path: Path):
+    lg = _ledger(tmp_path)
+    lg.record(["/out/a.png", "/out/b.png"])
+    lines = (tmp_path / "_state" / "generated_ledger.jsonl").read_text().splitlines()
+    assert len(lines) == 2
+    rec = json.loads(lines[0])
+    assert rec["path"] == "/out/a.png"
+    assert "ts" in rec
+
+
+def test_record_empty_list_is_noop(tmp_path: Path):
+    lg = _ledger(tmp_path)
+    lg.record([])
+    assert not (tmp_path / "_state" / "generated_ledger.jsonl").exists()
+
+
+def test_record_skips_non_string_and_empty(tmp_path: Path):
+    lg = _ledger(tmp_path)
+    lg.record(["", None, 5, "/out/ok.png"])  # type: ignore[list-item]
+    lines = (tmp_path / "_state" / "generated_ledger.jsonl").read_text().splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0])["path"] == "/out/ok.png"
