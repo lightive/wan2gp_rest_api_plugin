@@ -59,6 +59,28 @@ def test_garbage_toggle_falls_back_to_default(tmp_path: Path):
     assert cfg.clean_outputs is True  # non-bool ignored -> default True
 
 
+def test_config_host_default_and_written(tmp_path: Path):
+    cfg_path = tmp_path / "cleanup_config.json"
+    cfg = CleanupConfig.load_or_create(cfg_path, tmp_path / "wan2gp")
+    assert cfg.host == "127.0.0.1"
+    assert json.loads(cfg_path.read_text())["host"] == "127.0.0.1"  # auto-created
+
+
+def test_config_host_all_interfaces(tmp_path: Path):
+    cfg_path = tmp_path / "cleanup_config.json"
+    cfg_path.write_text(json.dumps({"host": "0.0.0.0"}))
+    cfg = CleanupConfig.load_or_create(cfg_path, tmp_path / "wan2gp")
+    assert cfg.host == "0.0.0.0"
+
+
+@pytest.mark.parametrize("bad", ["evil.example.com", "10.0.0.5", "", "0.0.0.0 ", 123, None])
+def test_config_host_invalid_falls_back(tmp_path: Path, bad):
+    cfg_path = tmp_path / "cleanup_config.json"
+    cfg_path.write_text(json.dumps({"host": bad}))
+    cfg = CleanupConfig.load_or_create(cfg_path, tmp_path / "wan2gp")
+    assert cfg.host == "127.0.0.1"
+
+
 def _ledger(tmp_path: Path) -> Ledger:
     return Ledger(tmp_path / "_state" / "generated_ledger.jsonl")
 

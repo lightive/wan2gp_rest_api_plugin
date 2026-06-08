@@ -65,7 +65,8 @@ Set `image_prompt_type` to control start/end image use: `"S"` start, `"E"` end, 
 On startup the plugin removes leftover upload temp files and deletes **its own** generated outputs older than the
 retention window (default 30 days; edit `cleanup_config.json`). Your manual Wan2GP UI outputs are never touched.
 
-> The server binds `127.0.0.1:7989` (localhost only) — it is not reachable from other machines.
+> The server binds `127.0.0.1:7989` (localhost only) by default and has no auth.
+Set `host` to `0.0.0.0` in `cleanup_config.json` to expose it on the LAN — trusted networks only.
 """
 
 _OPENAPI_TAGS = [

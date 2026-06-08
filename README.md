@@ -13,7 +13,7 @@ A [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) plugin that exposes image and
 4. **Enable & restart** — Check **"Wan2GP REST API"**, click **Save Settings**, then restart Wan2GP.
 5. **Ready** — The API is live at `http://127.0.0.1:7989`. Open `/docs` for interactive Swagger UI.
 
-> The server binds `127.0.0.1:7989` (localhost only) and has no authentication — it is not reachable from other machines.
+> The server binds `127.0.0.1:7989` (localhost only) by default and has no authentication. To allow access from other machines, set `host` to `"0.0.0.0"` in `cleanup_config.json` — only on a trusted network (see [Disk Cleanup](#disk-cleanup) for the config file).
 
 ## API Endpoints
 
@@ -544,11 +544,12 @@ any text editor (e.g. Notepad) and restart to apply:
 
 ```json
 {
-  "_comment": "Wan2GP REST startup cleanup. Edit values, restart to apply.",
+  "_comment": "Wan2GP REST plugin config (startup cleanup + server bind). Edit values, restart to apply.",
   "clean_uploads": true,
   "clean_outputs": true,
   "output_retention_days": 30,
-  "output_roots": []
+  "output_roots": [],
+  "host": "127.0.0.1"
 }
 ```
 
@@ -558,6 +559,9 @@ any text editor (e.g. Notepad) and restart to apply:
 | `clean_outputs` | `true` | Delete ledgered generated outputs past the retention window |
 | `output_retention_days` | `30` | Age threshold in days. Must be an integer ≥ 1; invalid values fall back to 30 |
 | `output_roots` | `[]` | Extra allowed roots for deletion. The default `<wan2gp_root>/outputs` is always included |
+| `host` | `"127.0.0.1"` | Server bind address: `"127.0.0.1"` = localhost only; `"0.0.0.0"` = all interfaces (LAN). Any other value falls back to `127.0.0.1` |
+
+> ⚠️ Setting `host` to `"0.0.0.0"` exposes the **unauthenticated** API to every machine on your network. Only do this on a trusted network.
 
 `output_roots` is **required** if you configured Wan2GP to write outputs to a
 directory **not** under `<wan2gp_root>/outputs` — otherwise those files fall

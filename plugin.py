@@ -46,6 +46,7 @@ class RestApiPlugin(WAN2GPPlugin):
         #    The ledger is only maintained when output cleanup is enabled, so a
         #    disabled config never grows the ledger file. Wrapped so cleanup can
         #    never block start_server (defense in depth).
+        config = None
         ledger = None
         try:
             config = CleanupConfig.load_or_create(
@@ -72,6 +73,13 @@ class RestApiPlugin(WAN2GPPlugin):
         # 5. Inject dependencies into the REST server
         configure(store, session, callback_adapter, upload_manager)
 
-        # 6. Start server
-        self._server_thread = start_server(host="127.0.0.1", port=7989)
+        # 6. Start server (host is configurable in cleanup_config.json:
+        #    "127.0.0.1" = localhost only (default), "0.0.0.0" = all interfaces.)
+        host = config.host if config is not None else "127.0.0.1"
+        if host == "0.0.0.0":
+            print(
+                "[Wan2GP REST] WARNING: host=0.0.0.0 exposes the unauthenticated "
+                "API to your LAN. Use 127.0.0.1 unless you intend remote access."
+            )
+        self._server_thread = start_server(host=host, port=7989)
         print("[Wan2GP REST] Plugin initialized. REST API is ready.")

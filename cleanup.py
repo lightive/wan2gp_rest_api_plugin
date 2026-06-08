@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _DEFAULT_RETENTION_DAYS = 30
+_DEFAULT_HOST = "127.0.0.1"
+_ALLOWED_HOSTS = ("127.0.0.1", "0.0.0.0")
 
 
 @dataclass
@@ -27,6 +29,7 @@ class CleanupConfig:
     clean_outputs: bool = True
     retention_days: int = _DEFAULT_RETENTION_DAYS
     allowed_roots: list[Path] = field(default_factory=list)
+    host: str = _DEFAULT_HOST
 
     @classmethod
     def load_or_create(cls, config_path: Path, wan2gp_root: Path) -> CleanupConfig:
@@ -53,16 +56,18 @@ class CleanupConfig:
             clean_outputs=_as_bool(raw.get("clean_outputs", True), True),
             retention_days=_valid_days(raw.get("output_retention_days", _DEFAULT_RETENTION_DAYS)),
             allowed_roots=roots,
+            host=_valid_host(raw.get("host", _DEFAULT_HOST)),
         )
 
 
 def _write_default_config(config_path: Path) -> None:
     default = {
-        "_comment": "Wan2GP REST startup cleanup. Edit values, restart to apply.",
+        "_comment": "Wan2GP REST plugin config (startup cleanup + server bind). Edit values, restart to apply.",
         "clean_uploads": True,
         "clean_outputs": True,
         "output_retention_days": _DEFAULT_RETENTION_DAYS,
         "output_roots": [],
+        "host": _DEFAULT_HOST,
     }
     try:
         config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,6 +87,14 @@ def _valid_days(value) -> int:
             print(f"[Wan2GP REST] invalid output_retention_days={value!r}; using {_DEFAULT_RETENTION_DAYS}")
         return _DEFAULT_RETENTION_DAYS
     return value
+
+
+def _valid_host(value) -> str:
+    """Allow only loopback or all-interfaces; anything else falls back to loopback."""
+    if value in _ALLOWED_HOSTS:
+        return value
+    print(f"[Wan2GP REST] invalid host={value!r}; using {_DEFAULT_HOST} (allowed: 127.0.0.1, 0.0.0.0)")
+    return _DEFAULT_HOST
 
 
 class Ledger:
