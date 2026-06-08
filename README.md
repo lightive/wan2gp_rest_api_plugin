@@ -582,6 +582,44 @@ Use the `download_url` from the job status response, or construct the URL manual
 curl -O http://127.0.0.1:7989/jobs/{job_id}/download/0
 ```
 
+## Disk Cleanup
+
+To keep disk usage bounded over long-term use, the plugin runs a one-time safe
+cleanup each time it starts (before the API accepts requests):
+
+1. **Temp uploads** — all leftover files under `_uploads/` are removed. These are
+   ephemeral: an uploaded file that is not submitted to a job before a restart is
+   discarded.
+2. **Old generated outputs** — files the plugin itself generated and recorded in
+   its ledger (`_state/generated_ledger.jsonl`) that are older than the retention
+   window are deleted. Your manual Wan2GP UI generations are **never** touched —
+   only files inside the configured output root that the plugin created are
+   eligible.
+
+### Configuration — `cleanup_config.json`
+
+On first run the plugin auto-creates `cleanup_config.json` next to it. Edit it in
+any text editor (e.g. Notepad) and restart to apply:
+
+```json
+{
+  "_comment": "Wan2GP REST startup cleanup. Edit values, restart to apply.",
+  "clean_uploads": true,
+  "clean_outputs": true,
+  "output_retention_days": 30,
+  "output_roots": []
+}
+```
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `clean_uploads` | `true` | Wipe leftover `_uploads/` temp files at startup |
+| `clean_outputs` | `true` | Delete ledgered generated outputs past the retention window |
+| `output_retention_days` | `30` | Age threshold in days. Must be an integer ≥ 1; invalid values fall back to 30 |
+| `output_roots` | `[]` | Extra allowed roots for deletion. The default `<wan2gp_root>/outputs` is always included |
+
+To disable output deletion entirely, set `"clean_outputs": false`.
+
 ## Error Handling
 
 | HTTP Status | When |
