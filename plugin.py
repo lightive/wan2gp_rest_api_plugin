@@ -68,7 +68,8 @@ class RestApiPlugin(WAN2GPPlugin):
                 if config.clean_outputs
                 else None
             )
-            run_startup_cleanup(upload_manager.base_dir, ledger, config)
+            gradio_temp_dir = pinokio_wan2gp_root / "cache" / "GRADIO_TEMP_DIR"
+            run_startup_cleanup(upload_manager.base_dir, ledger, config, gradio_temp_dir)
         except Exception as exc:
             print(f"[Wan2GP REST] startup cleanup skipped ({exc})")
 

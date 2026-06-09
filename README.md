@@ -536,6 +536,12 @@ best-effort: it never raises and never blocks the server from starting.
    created before this feature existed — are **never** touched, because they are
    not in the ledger; only files inside the configured output root that the
    plugin recorded are eligible.
+3. **Gradio temp cache** — everything inside `<pinokio_root>/cache/GRADIO_TEMP_DIR/`
+   (Gradio's accumulated temp files for the Wan2GP UI) is removed; the folder itself
+   is kept. `<pinokio_root>` is the parent of the Wan2GP app dir (the one with `wgp.py`).
+   This runs at startup, so it clears mostly stale cross-session files — set
+   `clean_gradio_temp` to `false` if you reload the plugin while actively using the UI
+   and don't want recently-created temp files removed.
 
 ### Configuration — `cleanup_config.json`
 
@@ -547,6 +553,7 @@ any text editor (e.g. Notepad) and restart to apply:
   "_comment": "Wan2GP REST plugin config (startup cleanup + server bind). Edit values, restart to apply.",
   "clean_uploads": true,
   "clean_outputs": true,
+  "clean_gradio_temp": true,
   "output_retention_days": 30,
   "output_roots": [],
   "host": "127.0.0.1"
@@ -557,6 +564,7 @@ any text editor (e.g. Notepad) and restart to apply:
 |-----|---------|---------|
 | `clean_uploads` | `true` | Wipe leftover `_uploads/` temp files at startup |
 | `clean_outputs` | `true` | Delete ledgered generated outputs past the retention window |
+| `clean_gradio_temp` | `true` | Wipe everything inside `<pinokio_root>/cache/GRADIO_TEMP_DIR/` at startup |
 | `output_retention_days` | `30` | Age threshold in days. Must be an integer ≥ 1; invalid values fall back to 30 |
 | `output_roots` | `[]` | Extra allowed roots for deletion. The default `<wan2gp_root>/outputs` is always included |
 | `host` | `"127.0.0.1"` | Server bind address: `"127.0.0.1"` = localhost only; `"0.0.0.0"` = all interfaces (LAN). Any other value falls back to `127.0.0.1` |

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from cleanup import CleanupConfig, Ledger, clean_uploads, find_wan2gp_root, run_startup_cleanup
+from cleanup import CleanupConfig, Ledger, find_wan2gp_root, purge_dir_contents, run_startup_cleanup
 
 
 def test_config_created_with_defaults_when_missing(tmp_path: Path):
@@ -231,13 +231,13 @@ def test_clean_uploads_removes_children(tmp_path: Path):
     (base / "job2").mkdir()
     (base / "stray.bin").write_bytes(b"b")  # stray top-level file
 
-    removed = clean_uploads(base)
+    removed = purge_dir_contents(base)
     assert removed == 3
     assert list(base.iterdir()) == []  # base itself remains, now empty
 
 
 def test_clean_uploads_missing_base_returns_zero(tmp_path: Path):
-    assert clean_uploads(tmp_path / "does_not_exist") == 0
+    assert purge_dir_contents(tmp_path / "does_not_exist") == 0
 
 
 def test_clean_uploads_does_not_escape_via_symlink(tmp_path: Path):
@@ -252,7 +252,7 @@ def test_clean_uploads_does_not_escape_via_symlink(tmp_path: Path):
     except (OSError, NotImplementedError):
         pytest.skip("symlink/junction creation not permitted on this host")
 
-    clean_uploads(base)
+    purge_dir_contents(base)
     assert not (base / "link").exists()  # link entry removed
     assert keeper.exists()               # target contents untouched
 
@@ -297,6 +297,32 @@ def test_orchestrator_never_raises_on_bad_input(tmp_path: Path):
     bad_ledger = Ledger(tmp_path / "_state" / "missing.jsonl")
     # Non-existent upload base + missing ledger must be handled silently.
     run_startup_cleanup(tmp_path / "no_such_uploads", bad_ledger, cfg)
+
+
+def test_config_clean_gradio_temp_default(tmp_path: Path):
+    cfg = CleanupConfig.load_or_create(tmp_path / "cleanup_config.json", tmp_path / "wan2gp")
+    assert cfg.clean_gradio_temp is True
+
+
+def test_orchestrator_purges_gradio_temp(tmp_path: Path):
+    gradio = tmp_path / "cache" / "GRADIO_TEMP_DIR"
+    (gradio / "abc123").mkdir(parents=True)
+    (gradio / "abc123" / "f.bin").write_bytes(b"x")
+    (gradio / "stray.tmp").write_bytes(b"y")
+    cfg = CleanupConfig(clean_uploads=False, clean_outputs=False, clean_gradio_temp=True)
+    run_startup_cleanup(tmp_path / "no_uploads", Ledger(tmp_path / "_state" / "l.jsonl"),
+                        cfg, gradio_temp_dir=gradio)
+    assert gradio.exists()                 # dir kept
+    assert list(gradio.iterdir()) == []    # contents wiped
+
+
+def test_orchestrator_skips_gradio_when_disabled(tmp_path: Path):
+    gradio = tmp_path / "cache" / "GRADIO_TEMP_DIR"
+    (gradio / "keep").mkdir(parents=True)
+    cfg = CleanupConfig(clean_uploads=False, clean_outputs=False, clean_gradio_temp=False)
+    run_startup_cleanup(tmp_path / "no_uploads", Ledger(tmp_path / "_state" / "l.jsonl"),
+                        cfg, gradio_temp_dir=gradio)
+    assert (gradio / "keep").exists()      # untouched when disabled
 
 
 def test_config_load_does_not_raise_when_unwritable(tmp_path: Path):

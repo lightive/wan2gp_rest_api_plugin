@@ -27,6 +27,7 @@ _ALLOWED_HOSTS = ("127.0.0.1", "0.0.0.0")
 class CleanupConfig:
     clean_uploads: bool = True
     clean_outputs: bool = True
+    clean_gradio_temp: bool = True
     retention_days: int = _DEFAULT_RETENTION_DAYS
     allowed_roots: list[Path] = field(default_factory=list)
     host: str = _DEFAULT_HOST
@@ -54,6 +55,7 @@ class CleanupConfig:
         return cls(
             clean_uploads=_as_bool(raw.get("clean_uploads", True), True),
             clean_outputs=_as_bool(raw.get("clean_outputs", True), True),
+            clean_gradio_temp=_as_bool(raw.get("clean_gradio_temp", True), True),
             retention_days=_valid_days(raw.get("output_retention_days", _DEFAULT_RETENTION_DAYS)),
             allowed_roots=roots,
             host=_valid_host(raw.get("host", _DEFAULT_HOST)),
@@ -65,6 +67,7 @@ def _write_default_config(config_path: Path) -> None:
         "_comment": "Wan2GP REST plugin config (startup cleanup + server bind). Edit values, restart to apply.",
         "clean_uploads": True,
         "clean_outputs": True,
+        "clean_gradio_temp": True,
         "output_retention_days": _DEFAULT_RETENTION_DAYS,
         "output_roots": [],
         "host": _DEFAULT_HOST,
@@ -266,18 +269,18 @@ def _within_roots(path: Path, roots: list[Path]) -> bool:
     return False
 
 
-def clean_uploads(upload_base: Path) -> int:
-    """Remove every child of the uploads dir; return count removed.
+def purge_dir_contents(directory: Path) -> int:
+    """Remove every child of *directory*; return the count removed.
 
-    Per-child handling never recurses through a symlink/junction/reparse point,
-    so deletion cannot escape the upload base.
+    The directory itself is kept. Per-child handling never recurses through a
+    symlink/junction/reparse point, so deletion cannot escape *directory*.
     """
-    upload_base = Path(upload_base)
-    if not upload_base.exists():
+    directory = Path(directory)
+    if not directory.exists():
         return 0
-    base = upload_base.resolve()
+    base = directory.resolve()
     removed = 0
-    for child in list(upload_base.iterdir()):
+    for child in list(directory.iterdir()):
         try:
             real_parent = Path(os.path.realpath(child)).parent
             if child.is_symlink() or real_parent != base:
@@ -309,16 +312,27 @@ def _unlink_or_rmdir(link: Path) -> bool:
             return False
 
 
-def run_startup_cleanup(upload_base: Path, ledger: Ledger, config: CleanupConfig) -> None:
+def run_startup_cleanup(
+    upload_base: Path,
+    ledger: Ledger,
+    config: CleanupConfig,
+    gradio_temp_dir: Path | None = None,
+) -> None:
     """Best-effort one-time cleanup. Never raises -- must not block startup."""
     temp_removed = 0
+    gradio_removed = 0
     out_deleted = 0
     out_freed = 0
     if config.clean_uploads:
         try:
-            temp_removed = clean_uploads(upload_base)
+            temp_removed = purge_dir_contents(upload_base)
         except Exception as exc:
             print(f"[Wan2GP REST] upload cleanup failed: {exc}")
+    if config.clean_gradio_temp and gradio_temp_dir is not None:
+        try:
+            gradio_removed = purge_dir_contents(gradio_temp_dir)
+        except Exception as exc:
+            print(f"[Wan2GP REST] gradio temp cleanup failed: {exc}")
     if config.clean_outputs:
         try:
             out_deleted, out_freed = ledger.prune(config.retention_days, config.allowed_roots)
@@ -326,4 +340,5 @@ def run_startup_cleanup(upload_base: Path, ledger: Ledger, config: CleanupConfig
             print(f"[Wan2GP REST] output cleanup failed: {exc}")
     mb = out_freed / (1024 * 1024)
     print(f"[Wan2GP REST] cleanup: temp {temp_removed} items, "
+          f"gradio {gradio_removed} items, "
           f"outputs {out_deleted} files ({mb:.1f} MB freed)")
