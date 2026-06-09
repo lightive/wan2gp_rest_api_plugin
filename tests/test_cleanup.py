@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from cleanup import CleanupConfig, Ledger, clean_uploads, run_startup_cleanup
+from cleanup import CleanupConfig, Ledger, clean_uploads, find_wan2gp_root, run_startup_cleanup
 
 
 def test_config_created_with_defaults_when_missing(tmp_path: Path):
@@ -338,3 +338,30 @@ def test_read_entries_keeps_valid_over_unparseable_dup(tmp_path: Path):
     assert deleted == 1  # valid expired record kept -> file deleted
     assert freed == 42
     assert not f.exists()
+
+
+def test_find_wan2gp_root_locates_wgp_dir(tmp_path: Path):
+    # Deployed layout: <drive>/.../wan.git/app/plugins/wan2gp_rest_api_plugin
+    app = tmp_path / "wan.git" / "app"
+    plugin_dir = app / "plugins" / "wan2gp_rest_api_plugin"
+    plugin_dir.mkdir(parents=True)
+    (app / "wgp.py").write_text("# wan2gp entry script")
+    assert find_wan2gp_root(plugin_dir) == app.resolve()
+
+
+def test_find_wan2gp_root_found_regardless_of_depth(tmp_path: Path):
+    app = tmp_path / "app"
+    deep = app / "a" / "b" / "c" / "plugin"
+    deep.mkdir(parents=True)
+    (app / "wgp.py").write_text("# entry")
+    assert find_wan2gp_root(deep) == app.resolve()
+
+
+def test_find_wan2gp_root_fallback_when_missing(tmp_path: Path):
+    start = tmp_path / "x" / "y" / "z"
+    start.mkdir(parents=True)
+    fb = tmp_path / "fallback"
+    fb.mkdir()
+    assert find_wan2gp_root(start, fallback=fb) == fb.resolve()
+    # default fallback (no wgp.py, no explicit fallback) = grandparent
+    assert find_wan2gp_root(start) == (tmp_path / "x").resolve()

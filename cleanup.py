@@ -97,6 +97,33 @@ def _valid_host(value) -> str:
     return _DEFAULT_HOST
 
 
+_WGP_MARKER = "wgp.py"
+
+
+def find_wan2gp_root(start: Path, fallback: Path | None = None) -> Path:
+    """Return the Wan2GP *app* directory containing ``wgp.py``.
+
+    Walks up from *start* (the plugin directory) and returns the nearest
+    ancestor that holds ``wgp.py`` -- the Wan2GP entry script. This locates the
+    app independently of the install drive/path and of how deeply the plugin is
+    nested, so it works on any machine (``C:\\...``, ``D:\\...``, etc.).
+
+    When ``wgp.py`` is not found (e.g. a standalone dev checkout), falls back to
+    *fallback* if given, else ``start``'s grandparent (the legacy assumption).
+    """
+    start = Path(start).resolve()
+    for directory in (start, *start.parents):
+        try:
+            if (directory / _WGP_MARKER).is_file():
+                return directory
+        except OSError:
+            continue  # unreadable ancestor (ACL / network drive) -> keep walking
+    if fallback is not None:
+        return Path(fallback).resolve()
+    parents = start.parents
+    return parents[1] if len(parents) >= 2 else start
+
+
 class Ledger:
     """Append-only JSON-lines record of files the plugin generated."""
 

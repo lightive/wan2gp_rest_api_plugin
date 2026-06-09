@@ -15,6 +15,9 @@ class RestApiPlugin(WAN2GPPlugin):
         self.author = "lightive"
         self.description = "Exposes Wan2GP generation capabilities via a localhost REST API."
         self._server_thread = None
+        # Resolved at startup: the dir containing wgp.py, and its parent.
+        self.wan2gp_root = None
+        self.pinokio_wan2gp_root = None
 
     def setup_ui(self):
         """UI setup phase. The REST API plugin does not add any UI elements."""
@@ -30,13 +33,21 @@ class RestApiPlugin(WAN2GPPlugin):
         from shared.api import init as wan2gp_init
 
         from .callbacks import JobCallbackAdapter
-        from .cleanup import CleanupConfig, Ledger, run_startup_cleanup
+        from .cleanup import CleanupConfig, Ledger, find_wan2gp_root, run_startup_cleanup
         from .job_store import JobStore
         from .rest_server import configure, start_server
         from .uploads import UploadManager
 
         plugin_dir = Path(__file__).resolve().parent
-        wan2gp_root = plugin_dir.parent.parent
+        # Locate the Wan2GP app by finding wgp.py upward from the plugin, so the
+        # path is correct on any drive/install depth. Its parent is the Pinokio
+        # (wan.git) root. Both are stored for reuse.
+        wan2gp_root = find_wan2gp_root(plugin_dir)
+        pinokio_wan2gp_root = wan2gp_root.parent
+        self.wan2gp_root = wan2gp_root
+        self.pinokio_wan2gp_root = pinokio_wan2gp_root
+        print(f"[Wan2GP REST] wan2gp_root (wgp.py dir) = {wan2gp_root}")
+        print(f"[Wan2GP REST] pinokio_wan2gp_root      = {pinokio_wan2gp_root}")
 
         # 1. Create job store and upload manager
         store = JobStore()

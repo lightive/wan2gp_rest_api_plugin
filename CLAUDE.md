@@ -34,3 +34,7 @@ Do **not** bump the version unprompted — the user decides when.
   (via `__getattr__`/`__dir__`) so importing the package for tests does not pull it in.
 - The server bind host is configurable in `cleanup_config.json` (`host`: `127.0.0.1`
   localhost-only by default, or `0.0.0.0` for LAN — the API is unauthenticated).
+- `wan2gp_root` (the dir containing `wgp.py`, e.g. `…\wan.git\app`) is detected by walking
+  up from the plugin via `cleanup.find_wan2gp_root` — drive/depth independent, not hardcoded.
+  `pinokio_wan2gp_root` is its parent (`…\wan.git`). Both are stored on the plugin instance
+  and logged at startup. Output cleanup targets `wan2gp_root/outputs`.
