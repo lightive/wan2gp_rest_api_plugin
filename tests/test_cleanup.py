@@ -137,6 +137,7 @@ def test_prune_deletes_expired_and_keeps_recent(tmp_path: Path):
     outputs.mkdir()
     old_file = outputs / "old.png"
     old_file.write_bytes(b"x" * 100)
+    _backdate(old_file, 40)  # genuinely old: file mtime matches the ledger ts
     new_file = outputs / "new.png"
     new_file.write_bytes(b"y" * 50)
 
@@ -217,11 +218,39 @@ def test_prune_dedup_latest_wins(tmp_path: Path):
     assert f.exists()
 
 
+def test_prune_keeps_file_newer_than_cutoff(tmp_path: Path):
+    # Reuse guard: ledger says old, but the file on disk is recent (a new file
+    # replaced the recorded one) -> keep it, don't delete by the stale ts.
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    f = outputs / "reused.png"
+    f.write_bytes(b"fresh")  # mtime = now
+    lg = _write_ledger(tmp_path, [{"path": str(f), "ts": _old_ts(99)}])
+    deleted, _ = lg.prune(30, [outputs.resolve()])
+    assert deleted == 0
+    assert f.exists()
+
+
+def test_prune_invalid_retention_never_deletes(tmp_path: Path):
+    # retention < 1 would make the cutoff a future time and wipe everything;
+    # prune must refuse instead.
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    old_file = outputs / "old.png"
+    old_file.write_bytes(b"x")
+    _backdate(old_file, 99)
+    lg = _write_ledger(tmp_path, [{"path": str(old_file), "ts": _old_ts(99)}])
+    for bad in (0, -1, -30):
+        assert lg.prune(bad, [outputs.resolve()]) == (0, 0)
+        assert old_file.exists()
+
+
 def test_prune_skips_malformed_lines(tmp_path: Path):
     outputs = tmp_path / "outputs"
     outputs.mkdir()
     good = outputs / "good.png"
     good.write_bytes(b"z" * 10)
+    _backdate(good, 40)
     p = tmp_path / "_state" / "generated_ledger.jsonl"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(
@@ -276,6 +305,7 @@ def test_orchestrator_runs_both_steps(tmp_path: Path):
     outputs.mkdir()
     old_file = outputs / "old.png"
     old_file.write_bytes(b"x" * 20)
+    _backdate(old_file, 40)
     lg = _write_ledger(tmp_path, [{"path": str(old_file), "ts": _old_ts(40)}])
 
     cfg = CleanupConfig(clean_uploads=True, clean_outputs=True,
@@ -390,6 +420,7 @@ def test_read_entries_keeps_valid_over_unparseable_dup(tmp_path: Path):
     outputs.mkdir()
     f = outputs / "reused.png"
     f.write_bytes(b"x" * 42)
+    _backdate(f, 40)
     # Same path twice: first a VALID expired ts, then an UNPARSEABLE ts.
     # The valid (expired) record must win, so prune deletes the file.
     lg = _write_ledger(tmp_path, [

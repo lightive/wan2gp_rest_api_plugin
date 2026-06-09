@@ -163,6 +163,8 @@ class Ledger:
         with self._lock:
             if not self._path.exists():
                 return (0, 0)
+            if not isinstance(retention_days, int) or retention_days < 1:
+                return (0, 0)  # invalid retention -> never delete (avoids a future cutoff)
             entries = self._read_entries()  # deduped, latest ts wins
             cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
             survivors: list[dict] = []
@@ -177,23 +179,30 @@ class Ledger:
                     survivors.append(entry)
                     continue
                 # --- expired: guarded deletion ---
+                if Path(path_str).is_symlink():
+                    survivors.append(entry)  # never delete through a symlink
+                    continue
                 target = _resolve(path_str)
                 if target is None:
                     continue  # bad path -> drop
                 if not _within_roots(target, allowed_roots):
                     survivors.append(entry)  # outside allowed root -> never delete
                     continue
-                # _resolve() already followed symlinks, so the containment
-                # check above is the real guard; only the dir check remains.
                 if target.is_dir():
                     survivors.append(entry)  # never delete a directory as a file
                     continue
                 try:
-                    size = target.stat().st_size
+                    st = target.stat()
                 except FileNotFoundError:
                     continue  # already gone -> drop entry
                 except OSError:
                     survivors.append(entry)  # can't stat -> keep record
+                    continue
+                # Reuse guard: if the file on disk is newer than the cutoff, a new
+                # file replaced the recorded one -> keep it (don't delete a fresh
+                # file by a stale ledger timestamp).
+                if datetime.fromtimestamp(st.st_mtime, timezone.utc) >= cutoff:
+                    survivors.append(entry)
                     continue
                 try:
                     target.unlink(missing_ok=True)
@@ -201,7 +210,7 @@ class Ledger:
                     survivors.append(entry)  # deletion failed -> keep record
                     continue
                 deleted += 1
-                freed += size
+                freed += st.st_size
             self._atomic_rewrite(survivors)
             return (deleted, freed)
 
@@ -336,7 +345,7 @@ def _newest_mtime(path: Path, recurse: bool) -> float:
             try:
                 newest = max(newest, sub.lstat().st_mtime)
             except OSError:
-                continue
+                return float("inf")  # unreadable descendant -> treat dir as recent (keep)
     return newest
 
 
