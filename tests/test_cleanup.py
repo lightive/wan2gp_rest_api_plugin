@@ -5,7 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from cleanup import CleanupConfig, Ledger, find_wan2gp_root, purge_dir_contents, run_startup_cleanup
+from cleanup import (
+    CleanupConfig,
+    Ledger,
+    find_wan2gp_root,
+    purge_dir_contents,
+    purge_dir_contents_older_than,
+    run_startup_cleanup,
+)
 
 
 def test_config_created_with_defaults_when_missing(tmp_path: Path):
@@ -118,6 +125,11 @@ def _write_ledger(tmp_path: Path, entries: list[dict]) -> Ledger:
 
 def _old_ts(days: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def _backdate(path: Path, days: int) -> None:
+    ts = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
+    os.utime(path, (ts, ts))
 
 
 def test_prune_deletes_expired_and_keeps_recent(tmp_path: Path):
@@ -304,16 +316,40 @@ def test_config_clean_gradio_temp_default(tmp_path: Path):
     assert cfg.clean_gradio_temp is True
 
 
-def test_orchestrator_purges_gradio_temp(tmp_path: Path):
+def test_orchestrator_purges_old_gradio_temp(tmp_path: Path):
     gradio = tmp_path / "cache" / "GRADIO_TEMP_DIR"
-    (gradio / "abc123").mkdir(parents=True)
-    (gradio / "abc123" / "f.bin").write_bytes(b"x")
-    (gradio / "stray.tmp").write_bytes(b"y")
+    old_dir = gradio / "old"
+    old_dir.mkdir(parents=True)
+    (old_dir / "f.bin").write_bytes(b"x")
+    _backdate(old_dir / "f.bin", 3)
+    _backdate(old_dir, 3)
+    recent_dir = gradio / "recent"
+    recent_dir.mkdir(parents=True)  # mtime = now
     cfg = CleanupConfig(clean_uploads=False, clean_outputs=False, clean_gradio_temp=True)
     run_startup_cleanup(tmp_path / "no_uploads", Ledger(tmp_path / "_state" / "l.jsonl"),
                         cfg, gradio_temp_dir=gradio)
-    assert gradio.exists()                 # dir kept
-    assert list(gradio.iterdir()) == []    # contents wiped
+    assert not old_dir.exists()    # older than retention (default 1 day) -> removed
+    assert recent_dir.exists()     # recent -> kept
+    assert gradio.exists()         # parent dir kept
+
+
+def test_purge_older_keeps_dir_with_a_recent_file(tmp_path: Path):
+    d = tmp_path / "g"
+    sub = d / "hash"
+    sub.mkdir(parents=True)
+    (sub / "recent.bin").write_bytes(b"x")  # recent (current-session proxy)
+    old_marker = sub / "old.bin"
+    old_marker.write_bytes(b"y")
+    _backdate(old_marker, 5)
+    _backdate(sub, 5)  # dir itself backdated
+    removed = purge_dir_contents_older_than(d, 1)
+    assert removed == 0
+    assert sub.exists()  # kept because recent.bin is newer than the cutoff
+
+
+def test_config_gradio_retention_default(tmp_path: Path):
+    cfg = CleanupConfig.load_or_create(tmp_path / "cleanup_config.json", tmp_path / "wan2gp")
+    assert cfg.gradio_temp_retention_days == 1
 
 
 def test_orchestrator_skips_gradio_when_disabled(tmp_path: Path):

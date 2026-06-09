@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _DEFAULT_RETENTION_DAYS = 30
+_GRADIO_RETENTION_DAYS = 1
 _DEFAULT_HOST = "127.0.0.1"
 _ALLOWED_HOSTS = ("127.0.0.1", "0.0.0.0")
 
@@ -29,6 +30,7 @@ class CleanupConfig:
     clean_outputs: bool = True
     clean_gradio_temp: bool = True
     retention_days: int = _DEFAULT_RETENTION_DAYS
+    gradio_temp_retention_days: int = _GRADIO_RETENTION_DAYS
     allowed_roots: list[Path] = field(default_factory=list)
     host: str = _DEFAULT_HOST
 
@@ -56,7 +58,12 @@ class CleanupConfig:
             clean_uploads=_as_bool(raw.get("clean_uploads", True), True),
             clean_outputs=_as_bool(raw.get("clean_outputs", True), True),
             clean_gradio_temp=_as_bool(raw.get("clean_gradio_temp", True), True),
-            retention_days=_valid_days(raw.get("output_retention_days", _DEFAULT_RETENTION_DAYS)),
+            retention_days=_valid_days(
+                raw.get("output_retention_days", _DEFAULT_RETENTION_DAYS), _DEFAULT_RETENTION_DAYS
+            ),
+            gradio_temp_retention_days=_valid_days(
+                raw.get("gradio_temp_retention_days", _GRADIO_RETENTION_DAYS), _GRADIO_RETENTION_DAYS
+            ),
             allowed_roots=roots,
             host=_valid_host(raw.get("host", _DEFAULT_HOST)),
         )
@@ -69,6 +76,7 @@ def _write_default_config(config_path: Path) -> None:
         "clean_outputs": True,
         "clean_gradio_temp": True,
         "output_retention_days": _DEFAULT_RETENTION_DAYS,
+        "gradio_temp_retention_days": _GRADIO_RETENTION_DAYS,
         "output_roots": [],
         "host": _DEFAULT_HOST,
     }
@@ -83,12 +91,12 @@ def _as_bool(value, default: bool) -> bool:
     return value if isinstance(value, bool) else default
 
 
-def _valid_days(value) -> int:
+def _valid_days(value, default: int) -> int:
     # bool is a subclass of int -- reject it explicitly.
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        if value != _DEFAULT_RETENTION_DAYS:
-            print(f"[Wan2GP REST] invalid output_retention_days={value!r}; using {_DEFAULT_RETENTION_DAYS}")
-        return _DEFAULT_RETENTION_DAYS
+        if value != default:
+            print(f"[Wan2GP REST] invalid retention days={value!r}; using {default}")
+        return default
     return value
 
 
@@ -312,6 +320,58 @@ def _unlink_or_rmdir(link: Path) -> bool:
             return False
 
 
+def _newest_mtime(path: Path, recurse: bool) -> float:
+    """Newest mtime of *path* itself and, when *recurse*, all its descendants.
+
+    Uses ``lstat`` so symlinks contribute their own mtime (never the target's),
+    and only recurses into a real directory. Unreadable entries return +inf so
+    the caller errs on the side of keeping them.
+    """
+    try:
+        newest = path.lstat().st_mtime
+    except OSError:
+        return float("inf")
+    if recurse and path.is_dir() and not path.is_symlink():
+        for sub in path.rglob("*"):
+            try:
+                newest = max(newest, sub.lstat().st_mtime)
+            except OSError:
+                continue
+    return newest
+
+
+def purge_dir_contents_older_than(directory: Path, days: int) -> int:
+    """Remove children of *directory* whose newest mtime is older than *days*.
+
+    A subdirectory is removed only when nothing inside it is newer than the
+    cutoff, so recently-used files (e.g. the current session's) are preserved.
+    Symlink/junction-escape safe; the directory itself is kept.
+    """
+    directory = Path(directory)
+    if not directory.exists():
+        return 0
+    base = directory.resolve()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
+    removed = 0
+    for child in list(directory.iterdir()):
+        try:
+            real_parent = Path(os.path.realpath(child)).parent
+            is_link = child.is_symlink() or real_parent != base
+            if _newest_mtime(child, recurse=not is_link) >= cutoff:
+                continue  # something here is recent -> keep
+            if is_link:
+                if not _unlink_or_rmdir(child):
+                    continue
+            elif child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink()
+            removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 def run_startup_cleanup(
     upload_base: Path,
     ledger: Ledger,
@@ -330,7 +390,9 @@ def run_startup_cleanup(
             print(f"[Wan2GP REST] upload cleanup failed: {exc}")
     if config.clean_gradio_temp and gradio_temp_dir is not None:
         try:
-            gradio_removed = purge_dir_contents(gradio_temp_dir)
+            gradio_removed = purge_dir_contents_older_than(
+                gradio_temp_dir, config.gradio_temp_retention_days
+            )
         except Exception as exc:
             print(f"[Wan2GP REST] gradio temp cleanup failed: {exc}")
     if config.clean_outputs:
